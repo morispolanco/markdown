@@ -1,0 +1,7 @@
+streamlit
+markdown
+htmldocx
+python-docx
+pypandoc  # opcional, recomendado para máxima compatibilidad
+# Alternativa con binario incluido:
+# pypandoc-binary
