@@ -1,2 +1,2 @@
 # packages.txt
-pandoc=2.19.2-4
+pandoc
