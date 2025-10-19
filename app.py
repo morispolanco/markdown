@@ -16,11 +16,12 @@ st.title("📚 Markdown → Word (Plantilla de Libro)")
 st.markdown(
     "- Pega tu Markdown o sube un archivo .md\n"
     "- Elige el motor de conversión\n"
-    "- Descarga el documento .docx formateado como libro"
+    "- (Opcional) Sube tu propia plantilla .docx para personalizar el estilo\n"
+    "- Descarga el documento .docx formateado"
 )
 
 # -------------------------------
-# Función para aplicar formato de plantilla de libro
+# Función para aplicar formato de plantilla de libro (por defecto)
 # -------------------------------
 def apply_book_template(doc):
     # Configurar márgenes (5x8 pulgadas aprox)
@@ -117,71 +118,90 @@ def apply_book_template(doc):
         toc_font.size = Pt(11)
         toc_style.paragraph_format.left_indent = Inches(0.25)
         
-    except:
-        pass  # Los estilos ya existen
+    except Exception as e:
+        # Los estilos ya existen o hubo un error, lo ignoramos para continuar
+        pass
     
     return doc
 
 # -------------------------------
 # Conversión con Pandoc (recomendado)
 # -------------------------------
-def convert_with_pandoc(md_text: str) -> bytes:
+def convert_with_pandoc(md_text: str, template_bytes: bytes = None) -> bytes:
     try:
         import pypandoc
-        # Creamos archivo temporal de salida porque pypandoc no devuelve bytes directamente para docx
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_path = os.path.join(tmpdir, "salida.docx")
+        
+        # Argumentos extra para Pandoc
+        extra_args = ["--standalone"]
+        
+        # Si se proporciona una plantilla, guardarla temporalmente y usarla como referencia
+        if template_bytes:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_template:
+                tmp_template.write(template_bytes)
+                tmp_template_path = tmp_template.name
+            extra_args.append(f"--reference-doc={tmp_template_path}")
+
+        # Crear archivo temporal de salida
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_out:
+            out_path = tmp_out.name
+            
             pypandoc.convert_text(
                 md_text,
                 "docx",
                 format="md",
                 outputfile=out_path,
-                extra_args=["--standalone"]  # documento completo
+                extra_args=extra_args
             )
             
-            # Cargar el documento y aplicar la plantilla de libro
-            doc = Document(out_path)
-            doc = apply_book_template(doc)
+            # Leer el resultado final a memoria
+            with open(out_path, "rb") as f:
+                bio = BytesIO(f.read())
             
-            # Guardar en memoria
-            bio = BytesIO()
-            doc.save(bio)
+            # Limpiar archivos temporales
+            os.remove(out_path)
+            if template_bytes:
+                os.remove(tmp_template_path)
+            
             bio.seek(0)
             return bio.getvalue()
+
+    except ImportError:
+        raise RuntimeError("La librería 'pypandoc' no está instalada. Ejecuta `pip install pypandoc`.")
     except Exception as e:
+        # Limpiar archivos temporales en caso de error
+        if 'out_path' in locals() and os.path.exists(out_path):
+            os.remove(out_path)
+        if 'tmp_template_path' in locals() and os.path.exists(tmp_template_path):
+            os.remove(tmp_template_path)
         raise RuntimeError(f"Pandoc no disponible o falló la conversión: {e}")
 
 # -------------------------------
 # Conversión con motor ligero (Markdown → HTML → DOCX)
 # -------------------------------
-def convert_with_python(md_text: str) -> bytes:
+def convert_with_python(md_text: str, template_bytes: bytes = None) -> bytes:
     # 1) Markdown → HTML
     import markdown
 
-    # Extensiones para soportar sintaxis amplia (listas, tablas, bloques de código, etc.)
     md_html = markdown.markdown(
         md_text,
         extensions=[
-            "extra",        # incluye tables, abbr, attr_list, def_list, etc.
-            "fenced_code",
-            "sane_lists",
-            "toc",
-            "admonition",
-            "footnotes",
+            "extra", "fenced_code", "sane_lists", "toc", "admonition", "footnotes",
         ],
         output_format="html5",
     )
 
     # 2) HTML → DOCX
-    # Usamos htmldocx (ligero). No cubre el 100% de HTML, pero funciona bien para Markdown típico.
     from docx import Document as DocxDocument
     from htmldocx import HtmlToDocx
 
-    doc = DocxDocument()
-    doc = apply_book_template(doc)
+    # Cargar la plantilla si se proporciona, si no, crear un nuevo documento
+    if template_bytes:
+        doc = DocxDocument(BytesIO(template_bytes))
+    else:
+        doc = DocxDocument()
+        doc = apply_book_template(doc) # Aplicar plantilla por defecto solo si no hay una personalizada
     
     converter = HtmlToDocx()
-    # Inserta el HTML en el documento
     converter.add_html_to_document(md_html, doc)
 
     # 3) Guardar en memoria
@@ -191,10 +211,11 @@ def convert_with_python(md_text: str) -> bytes:
     return bio.getvalue()
 
 # -------------------------------
-# Función para crear documento con estructura de libro
+# Función para crear documento con estructura de libro predefinida
 # -------------------------------
 def create_book_document(md_text: str, title: str = "Book Title", author: str = "Author Name") -> bytes:
-    # Crear un nuevo documento
+    # NOTA: Esta función ignora la plantilla subida por el usuario, ya que genera
+    # una estructura de libro fija y muy específica desde cero.
     doc = Document()
     doc = apply_book_template(doc)
     
@@ -236,31 +257,24 @@ def create_book_document(md_text: str, title: str = "Book Title", author: str = 
     # Procesar el contenido markdown
     doc.add_page_break()
     lines = md_text.split('\n')
-    current_chapter = None
     
     for line in lines:
         if line.startswith('# '):
-            # Nuevo capítulo
             chapter_title = line[2:].strip()
             chapter_para = doc.add_paragraph()
             chapter_para.style = doc.styles['ChapterTitle']
             chapter_para.add_run(f"Chapter {len(chapters) - chapters.index(chapter_title)}\n{chapter_title}")
-            current_chapter = chapter_title
         elif line.startswith('## '):
-            # Encabezado de nivel 2
             heading2 = doc.add_paragraph()
             heading2.style = doc.styles['BookHeading2']
             heading2.add_run(line[3:].strip())
         elif line.startswith('### '):
-            # Encabezado de nivel 3
             heading3 = doc.add_paragraph()
             heading3.style = doc.styles['BookHeading3']
             heading3.add_run(line[4:].strip())
         elif line.strip() == '':
-            # Línea en blanco
             doc.add_paragraph()
         else:
-            # Párrafo normal
             para = doc.add_paragraph()
             para.style = doc.styles['BookParagraph']
             para.add_run(line.strip())
@@ -275,21 +289,40 @@ def create_book_document(md_text: str, title: str = "Book Title", author: str = 
 # UI
 # -------------------------------
 with st.sidebar:
+    st.header("⚙️ Configuración")
+    
     motor = st.radio(
         "Motor de conversión",
-        options=["Pandoc (mejor compatibilidad)", "Motor ligero (Python)", "Plantilla de libro"],
-        index=2,
-        help="Pandoc soporta prácticamente toda la sintaxis Markdown. El motor ligero funciona sin Pandoc. La plantilla de libro aplica el formato de la plantilla proporcionada."
+        options=["Pandoc (mejor compatibilidad)", "Motor ligero (Python)", "Plantilla de libro (predefinida)"],
+        index=0,
+        help="**Pandoc**: Usa tu plantilla .docx como referencia para estilos. **Motor ligero**: Añade contenido a tu plantilla. **Plantilla de libro**: Crea una estructura fija y usa su propio estilo."
     )
     
-    if motor == "Plantilla de libro":
+    template_file = st.file_uploader(
+        "Sube tu plantilla .docx (opcional)",
+        type=["docx"],
+        help="Sube un archivo .docx para usarlo como base de estilos. Se usará con los motores Pandoc y Ligero. La opción 'Plantilla de libro' la ignorará."
+    )
+    
+    if motor == "Plantilla de libro (predefinida)":
         book_title = st.text_input("Título del libro", value="Book Title")
         book_author = st.text_input("Autor del libro", value="Author Name")
     
     nombre_salida = st.text_input("Nombre del archivo (sin extensión)", value="documento_markdown")
     vista_previa = st.checkbox("Mostrar vista previa del Markdown", value=True)
-    st.markdown("—")
+    
+    st.markdown("---")
     st.caption("Consejo: con Pandoc puedes convertir tablas, listas de tareas, tachados, notas al pie y más.")
+
+# Leer la plantilla subida a memoria
+template_bytes = None
+if template_file is not None:
+    try:
+        template_bytes = template_file.read()
+        st.sidebar.success("✅ Plantilla .docx cargada.")
+    except Exception as e:
+        st.sidebar.error(f"Error al leer la plantilla: {e}")
+        template_bytes = None
 
 archivo = st.file_uploader("Sube un archivo Markdown (.md, .markdown, .txt)", type=["md", "markdown", "txt"])
 texto_md = st.text_area("O pega tu Markdown aquí", height=300, placeholder="# Título\n\n**Negrita**, *cursiva*, listas, tablas, etc.")
@@ -318,14 +351,14 @@ if convertir:
     else:
         try:
             if motor.startswith("Pandoc"):
-                bytes_docx = convert_with_pandoc(contenido)
+                bytes_docx = convert_with_pandoc(contenido, template_bytes)
                 etiqueta_motor = "Pandoc"
             elif motor.startswith("Motor ligero"):
-                bytes_docx = convert_with_python(contenido)
+                bytes_docx = convert_with_python(contenido, template_bytes)
                 etiqueta_motor = "motor ligero (Python)"
             else:  # Plantilla de libro
                 bytes_docx = create_book_document(contenido, book_title, book_author)
-                etiqueta_motor = "plantilla de libro"
+                etiqueta_motor = "plantilla de libro predefinida"
             
             st.success(f"Conversión exitosa con {etiqueta_motor}. ¡Listo para descargar!")
             st.download_button(
@@ -341,5 +374,5 @@ if convertir:
                 st.info(
                     "Si no tienes Pandoc instalado, puedes:\n"
                     "- Instalarlo localmente desde https://pandoc.org/installing.html\n"
-                    "- O instalar la rueda que lo incluye: pip install pypandoc-binary"
+                    "- O instalar la rueda que lo incluye: `pip install pypandoc-binary`"
                 )
