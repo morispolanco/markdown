@@ -9,82 +9,44 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Markdown → Word (Plantilla de Libro)", page_icon="📚", layout="centered")
 
 # -------------------------------
-# Lógica de Capitalización Española
+# LÓGICA DE CAPITALIZACIÓN (NORMA ESPAÑOLA)
 # -------------------------------
-def fix_spanish_casing(text):
+def corregir_capitalizacion_espanola(texto_md):
     """
-    Convierte un título a minúsculas excepto la primera letra y nombres propios definidos.
+    Transforma los títulos (#) y subtítulos (##, ###) a minúsculas
+    excepto la primera letra y nombres propios conocidos.
     """
-    if not text:
-        return text
-    
-    # Lista de palabras que siempre deben mantener su capitalización (nombres propios)
-    # Puedes ampliar esta lista según tus necesidades
-    proper_nouns = ["España", "México", "Colombia", "Argentina", "Word", "Markdown", "Pandoc", "Python", "Streamlit"]
-    
-    # Dividir por espacios
-    words = text.split()
-    new_words = []
-    
-    for i, word in enumerate(words):
-        # Limpiar puntuación para comparar con la lista de nombres propios
-        clean_word = re.sub(r'[^\w]', '', word)
+    # Lista básica de excepciones (puedes ampliarla)
+    excepciones = ["España", "México", "Python", "Streamlit", "Pandoc", "Word", "Markdown", "Dios", "Europa"]
+
+    def transformar_linea(match):
+        hashes = match.group(1) # Los #
+        contenido = match.group(2).strip()
         
-        if i == 0:
-            # La primera palabra siempre lleva mayúscula inicial
-            new_words.append(word.capitalize())
-        elif clean_word in proper_nouns:
-            # Si es nombre propio, se deja como está
-            new_words.append(word)
-        else:
-            # El resto a minúsculas
-            new_words.append(word.lower())
-            
-    return " ".join(new_words)
+        palabras = contenido.split()
+        nuevas_palabras = []
+        
+        for i, word in enumerate(palabras):
+            clean_word = re.sub(r'[^\w]', '', word) # Quitar puntos/comas para comparar
+            if i == 0:
+                nuevas_palabras.append(word.capitalize())
+            elif clean_word in excepciones:
+                nuevas_palabras.append(word)
+            else:
+                nuevas_palabras.append(word.lower())
+        
+        return f"{hashes} {' '.join(nuevas_palabras)}"
 
-def process_markdown_titles(md_text):
-    """
-    Busca líneas que empiezan con # y aplica la norma española de capitalización.
-    """
-    def replace_header(match):
-        hashes = match.group(1)
-        title_content = match.group(2).strip()
-        return f"{hashes} {fix_spanish_casing(title_content)}"
-
-    # Regex para detectar headers de Markdown (# Título)
-    return re.sub(r'^(#+)\s+(.+)$', replace_header, md_text, flags=re.MULTILINE)
+    # Busca líneas que inicien con uno o más '#'
+    return re.sub(r'^(#+)\s+(.+)$', transformar_linea, texto_md, flags=re.MULTILINE)
 
 # -------------------------------
-# UI y Configuración
+# PLANTILLA Y MOTORES (TU CÓDIGO ORIGINAL)
 # -------------------------------
-st.title("📚 Markdown → Word (Plantilla de Libro)")
-
-with st.sidebar:
-    st.header("⚙️ Configuración")
-    
-    fix_titles = st.checkbox("Corregir mayúsculas en títulos (Norma Española)", value=True, 
-                             help="Convierte 'Título De Mi Libro' a 'Título de mi libro'.")
-    
-    motor = st.radio(
-        "Motor de conversión",
-        options=["Pandoc (mejor compatibilidad)", "Motor ligero (Python)", "Plantilla de libro (predefinida)"],
-        index=0
-    )
-    
-    template_file = st.file_uploader("Sube tu plantilla .docx (opcional)", type=["docx"])
-    
-    if motor == "Plantilla de libro (predefinida)":
-        book_title = st.text_input("Título del libro", value="Book Title")
-        book_author = st.text_input("Autor del libro", value="Author Name")
-    
-    nombre_salida = st.text_input("Nombre del archivo", value="documento_markdown")
-
-# --- Las funciones apply_book_template, convert_with_pandoc y convert_with_python 
-# se mantienen igual que en tu código original, solo cambia la llamada final ---
-
 def apply_book_template(doc):
     sections = doc.sections
     for section in sections:
@@ -99,81 +61,131 @@ def apply_book_template(doc):
     font.size = Pt(11)
     
     try:
-        title_style = doc.styles.add_style('BookTitle', WD_STYLE_TYPE.PARAGRAPH)
-        title_font = title_style.font
-        title_font.name = 'Times New Roman'
-        title_font.size = Pt(24)
-        title_font.bold = True
-        title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        chapter_style = doc.styles.add_style('ChapterTitle', WD_STYLE_TYPE.PARAGRAPH)
-        chapter_font = chapter_style.font
-        chapter_font.name = 'Times New Roman'
-        chapter_font.size = Pt(18)
-        chapter_font.bold = True
-        chapter_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        para_style = doc.styles.add_style('BookParagraph', WD_STYLE_TYPE.PARAGRAPH)
-        para_font = para_style.font
-        para_font.name = 'Times New Roman'
-        para_font.size = Pt(11)
-        para_style.paragraph_format.first_line_indent = Inches(0.25)
+        # Estilo para Título de Libro
+        if 'BookTitle' not in doc.styles:
+            title_style = doc.styles.add_style('BookTitle', WD_STYLE_TYPE.PARAGRAPH)
+            title_font = title_style.font
+            title_font.name = 'Times New Roman'
+            title_font.size = Pt(24)
+            title_font.bold = True
+            title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title_style.paragraph_format.space_after = Pt(24)
+
+        # Estilo para Título de Capítulo
+        if 'ChapterTitle' not in doc.styles:
+            chapter_style = doc.styles.add_style('ChapterTitle', WD_STYLE_TYPE.PARAGRAPH)
+            chapter_font = chapter_style.font
+            chapter_font.name = 'Times New Roman'
+            chapter_font.size = Pt(18)
+            chapter_font.bold = True
+            chapter_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            chapter_style.paragraph_format.space_before = Pt(24)
+            
+        # Estilo para Párrafo
+        if 'BookParagraph' not in doc.styles:
+            para_style = doc.styles.add_style('BookParagraph', WD_STYLE_TYPE.PARAGRAPH)
+            para_font = para_style.font
+            para_font.name = 'Times New Roman'
+            para_font.size = Pt(11)
+            para_style.paragraph_format.first_line_indent = Inches(0.25)
+            para_style.paragraph_format.line_spacing = 1.15
     except:
         pass
     return doc
 
-# (Aquí irían convert_with_pandoc y convert_with_python de tu código original)
+def convert_with_pandoc(md_text, template_bytes=None):
+    import pypandoc
+    extra_args = ["--standalone"]
+    tmp_template_path = None
+    
+    if template_bytes:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_template:
+            tmp_template.write(template_bytes)
+            tmp_template_path = tmp_template.name
+        extra_args.append(f"--reference-doc={tmp_template_path}")
 
-def create_book_document(md_text, title, author):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_out:
+        out_path = tmp_out.name
+        pypandoc.convert_text(md_text, "docx", format="md", outputfile=out_path, extra_args=extra_args)
+        with open(out_path, "rb") as f:
+            data = f.read()
+    
+    if os.path.exists(out_path): os.remove(out_path)
+    if tmp_template_path and os.path.exists(tmp_template_path): os.remove(tmp_template_path)
+    return data
+
+def convert_with_python(md_text, template_bytes=None):
+    import markdown
+    from htmldocx import HtmlToDocx
+    md_html = markdown.markdown(md_text, extensions=["extra", "fenced_code", "toc"])
+    
+    doc = Document(BytesIO(template_bytes)) if template_bytes else apply_book_template(Document())
+    HtmlToDocx().add_html_to_document(md_html, doc)
+    
+    bio = BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
+
+def create_book_document(md_text, title, author, fix_titles):
     doc = Document()
     doc = apply_book_template(doc)
     
-    # Aplicar corrección al título principal si está activo
-    final_title = fix_spanish_casing(title) if fix_titles else title
+    # Portada
+    t_portada = corregir_capitalizacion_espanola(f"# {title}").replace("# ", "") if fix_titles else title
+    p_title = doc.add_paragraph(t_portada, style='BookTitle')
     
-    title_para = doc.add_paragraph()
-    title_para.style = doc.styles['BookTitle']
-    title_para.add_run(final_title)
-    
-    # ... resto del procesamiento de líneas ...
+    # Contenido
     lines = md_text.split('\n')
     for line in lines:
         if line.startswith('# '):
-            t = fix_spanish_casing(line[2:].strip()) if fix_titles else line[2:].strip()
-            p = doc.add_paragraph(t, style=doc.styles['ChapterTitle'])
+            p = doc.add_paragraph(line[2:], style='ChapterTitle')
         elif line.startswith('## '):
-            t = fix_spanish_casing(line[3:].strip()) if fix_titles else line[3:].strip()
-            p = doc.add_paragraph(t) # O estilo Heading 2
-        else:
-            if line.strip():
-                p = doc.add_paragraph(line.strip(), style=doc.styles['BookParagraph'])
-                
+            p = doc.add_paragraph(line[3:])
+            p.bold = True
+        elif line.strip():
+            doc.add_paragraph(line.strip(), style='BookParagraph')
+            
     bio = BytesIO()
     doc.save(bio)
-    bio.seek(0)
     return bio.getvalue()
 
 # -------------------------------
-# Ejecución Principal
+# INTERFAZ STREAMLIT
 # -------------------------------
-archivo = st.file_uploader("Sube Markdown", type=["md", "txt"])
-texto_md = st.text_area("O pega aquí")
+st.title("📚 Markdown → Word")
 
-contenido = archivo.read().decode("utf-8") if archivo else texto_md
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    motor = st.radio("Motor", ["Pandoc (recomendado)", "Motor ligero (Python)", "Plantilla predefinida"])
+    corregir_títulos = st.checkbox("Aplicar norma española de títulos", value=True)
+    template_file = st.file_uploader("Plantilla .docx", type=["docx"])
+    nombre_archivo = st.text_input("Nombre de salida", "mi_libro")
 
-if st.button("Convertir a .docx"):
+archivo_md = st.file_uploader("Sube tu .md", type=["md", "txt"])
+texto_area = st.text_area("O pega el texto aquí")
+
+contenido = archivo_md.read().decode("utf-8") if archivo_md else texto_area
+
+if st.button("Convertir y Descargar"):
     if contenido:
-        # PROCESAMIENTO DE TÍTULOS SEGÚN NORMA ESPAÑOLA
-        if fix_titles:
-            contenido = process_markdown_titles(contenido)
+        # 1. CORRECCIÓN DE MAYÚSCULAS (Si está activo)
+        if corregir_títulos:
+            contenido = corregir_capitalizacion_espanola(contenido)
         
-        # Selección de motor (simplificado para el ejemplo)
-        if motor.startswith("Plantilla de libro"):
-            res = create_book_document(contenido, book_title, book_author)
-        else:
-            # Aquí llamarías a convert_with_pandoc o convert_with_python pasándole 'contenido' ya procesado
-            st.warning("Motor seleccionado. En una app completa, aquí se generaría el archivo.")
-            res = None 
+        # 2. PROCESAMIENTO SEGÚN MOTOR
+        t_bytes = template_file.read() if template_file else None
+        
+        try:
+            if motor.startswith("Pandoc"):
+                resultado = convert_with_pandoc(contenido, t_bytes)
+            elif motor.startswith("Motor ligero"):
+                resultado = convert_with_python(contenido, t_bytes)
+            else:
+                resultado = create_book_document(contenido, "Título", "Autor", corregir_títulos)
             
-        if res:
-            st.download_button("Descargar", res, file_name=f"{nombre_salida}.docx")
+            st.success("¡Documento generado!")
+            st.download_button("⬇️ Descargar Word", resultado, f"{nombre_archivo}.docx")
+        except Exception as e:
+            st.error(f"Error: {e}")
+    else:
+        st.warning("No hay contenido para convertir.")
