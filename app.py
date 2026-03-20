@@ -250,7 +250,7 @@ def run_book_conversion(md_text, meta, size_option):
 # -------------------------------
 
 st.title("📚 Generador Editorial Profesional")
-st.markdown("Documentos Word con tipografía **Aptos**, numeración y secciones Recto/Verso.")
+st.markdown("Carga tu archivo Markdown o escribe directamente para generar un libro maquetado.")
 
 with st.sidebar:
     st.header("Metadatos")
@@ -263,7 +263,23 @@ with st.sidebar:
     size_mode = st.selectbox("Formato", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
     m_copy = st.text_area("Copyright", f"© {datetime.now().year} {m_author}. Todos los derechos reservados.")
 
-content = st.text_area("Contenido Markdown", height=400, placeholder="# Capítulo 1\n## Sección\n### Subsección importante\n#### Detalle menor")
+# Lógica de carga de archivo
+uploaded_file = st.file_uploader("Sube tu archivo Markdown (.md o .txt)", type=["md", "txt"])
+default_content = ""
+
+if uploaded_file is not None:
+    try:
+        default_content = uploaded_file.read().decode("utf-8")
+        st.success(f"Archivo '{uploaded_file.name}' cargado correctamente.")
+    except Exception as e:
+        st.error(f"Error al leer el archivo: {e}")
+
+content = st.text_area(
+    "Contenido Markdown", 
+    value=default_content, 
+    height=400, 
+    placeholder="# Capítulo 1\n## Sección\n### Subsección importante\n#### Detalle menor"
+)
 
 if st.button("🚀 Generar y Descargar", use_container_width=True):
     if content:
@@ -274,4 +290,4 @@ if st.button("🚀 Generar y Descargar", use_container_width=True):
         st.info("Nota: Al abrir el archivo en Word, haga clic derecho sobre el índice y seleccione 'Actualizar campo'.")
         st.download_button("📥 Descargar .docx", result, f"{m_file}.docx")
     else:
-        st.error("Por favor, introduce contenido en formato Markdown.")
+        st.error("Por favor, introduce contenido en formato Markdown o sube un archivo.")
