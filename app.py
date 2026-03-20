@@ -49,7 +49,7 @@ def add_page_number(footer):
     run._r.append(fldChar)
 
 def add_toc_field(paragraph):
-    """Inserta el código de campo para generar la Tabla de Contenidos (TOC)."""
+    """Inserta el código de campo para generar la Tabla de Contenidos (TOC) hasta nivel 5."""
     run = paragraph.add_run()
     fldChar = OxmlElement('w:fldChar')
     fldChar.set(qn('w:fldCharType'), 'begin')
@@ -58,7 +58,7 @@ def add_toc_field(paragraph):
     run = paragraph.add_run()
     instrText = OxmlElement('w:instrText')
     instrText.set(qn('xml:space'), 'preserve')
-    instrText.text = 'TOC \\o "1-4" \\h \\z \\u'
+    instrText.text = 'TOC \\o "1-5" \\h \\z \\u'
     run._r.append(instrText)
 
     run = paragraph.add_run()
@@ -126,7 +126,7 @@ def setup_styles(doc):
     body.paragraph_format.line_spacing = 1.2
     body.paragraph_format.first_line_indent = Inches(0.25)
 
-    # Estilo Título 1: Aptos 16 pts (Utilizado para Capítulos)
+    # Estilo Título 1: Aptos 16 pts, Negrita (Capítulos)
     h1 = styles['Heading 1']
     h1.font.name, h1.font.size = 'Aptos', Pt(16)
     h1.font.bold = True
@@ -135,28 +135,38 @@ def setup_styles(doc):
     h1.paragraph_format.space_before, h1.paragraph_format.space_after = Inches(2.0), Inches(1.0)
     h1.paragraph_format.keep_with_next = True
 
-    # Estilo Título 2: Aptos 14 pts
+    # Estilo Título 2: Aptos 14 pts, Negrita
     h2 = styles['Heading 2']
     h2.font.name, h2.font.size = 'Aptos', Pt(14)
     h2.font.bold = True
     h2.font.color.rgb = RGBColor(0, 0, 0)
     h2.paragraph_format.space_before, h2.paragraph_format.space_after = Pt(18), Pt(12)
 
-    # Estilo Título 3: Aptos 12 pts (Negrita y Cursiva)
+    # Estilo Título 3: Aptos 12 pts, Negrita y Cursiva
     h3 = styles['Heading 3']
     h3.font.name, h3.font.size = 'Aptos', Pt(12)
     h3.font.bold, h3.font.italic = True, True
     h3.font.color.rgb = RGBColor(0, 0, 0)
     h3.paragraph_format.space_before, h3.paragraph_format.space_after = Pt(12), Pt(6)
 
-    # Estilo Título 4: Aptos 12 pts (Solo Cursiva)
+    # Estilo Título 4: Aptos 12 pts, Negrita y Cursiva
     if 'Heading 4' not in styles:
         styles.add_style('Heading 4', WD_STYLE_TYPE.PARAGRAPH)
     h4 = styles['Heading 4']
     h4.font.name, h4.font.size = 'Aptos', Pt(12)
-    h4.font.bold, h4.font.italic = False, True
+    h4.font.bold, h4.font.italic = True, True
     h4.font.color.rgb = RGBColor(0, 0, 0)
     h4.paragraph_format.space_before, h4.paragraph_format.space_after = Pt(10), Pt(4)
+
+    # Estilo Título 5: Aptos 11 pts, Negrita
+    if 'Heading 5' not in styles:
+        styles.add_style('Heading 5', WD_STYLE_TYPE.PARAGRAPH)
+    h5 = styles['Heading 5']
+    h5.font.name, h5.font.size = 'Aptos', Pt(11)
+    h5.font.bold = True
+    h5.font.italic = False
+    h5.font.color.rgb = RGBColor(0, 0, 0)
+    h5.paragraph_format.space_before, h5.paragraph_format.space_after = Pt(8), Pt(4)
 
     return doc
 
@@ -229,7 +239,8 @@ def run_book_conversion(md_text, meta, size_option):
                 apply_layout(new_sect, size_option)
                 p = doc.add_paragraph(style='Heading 1')
             else:
-                style_name = f'Heading {min(level, 4)}'
+                # Soporte hasta Título 5
+                style_name = f'Heading {min(level, 5)}'
                 p = doc.add_paragraph(style=style_name)
             
             add_formatted_text(p, content)
@@ -237,7 +248,7 @@ def run_book_conversion(md_text, meta, size_option):
         else:
             p = doc.add_paragraph(style='Body Text')
             if is_after_heading:
-                # El primer párrafo tras un encabezado no suele llevar sangría en maquetación
+                # El primer párrafo tras un encabezado no lleva sangría
                 p.paragraph_format.first_line_indent = 0
             add_formatted_text(p, " ".join(raw_text.split()))
             is_after_heading = False
