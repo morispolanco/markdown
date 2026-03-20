@@ -33,10 +33,48 @@ def set_mirror_margins(section):
         mirror_margins = OxmlElement('w:mirrorMargins')
         sectPr.insert(sectPr.index(cols[0]), mirror_margins)
 
+def add_formatted_text(paragraph, text):
+    """
+    Analiza el texto en busca de marcas de Markdown inline (negrita y cursiva)
+    y las aplica como 'runs' de Word.
+    """
+    # Regex para detectar negrita (** o __) y cursiva (* o _)
+    # Priorizamos la combinación de ambas (*** o ___)
+    pattern = re.compile(r'(\*\*\*.*?\*\*\*|___.*?___|\*\*.*?\*\*|__.*?__|Simplified\*.*?\*|_.*?_)')
+    
+    # Dividir el texto conservando los delimitadores
+    parts = re.split(r'(\*\*\*.*?\*\*\*|___.*?___|\*\*.*?\*\*|__.*?__|\*.*?\*|_.*?_)', text)
+    
+    for part in parts:
+        if not part:
+            continue
+            
+        is_bold = False
+        is_italic = False
+        clean_part = part
+        
+        if part.startswith('***') and part.endswith('***'):
+            is_bold = is_italic = True
+            clean_part = part[3:-3]
+        elif part.startswith('___') and part.endswith('___'):
+            is_bold = is_italic = True
+            clean_part = part[3:-3]
+        elif (part.startswith('**') and part.endswith('**')) or (part.startswith('__') and part.endswith('__')):
+            is_bold = True
+            clean_part = part[2:-2]
+        elif (part.startswith('*') and part.endswith('*')) or (part.startswith('_') and part.endswith('_')):
+            is_italic = True
+            clean_part = part[1:-1]
+            
+        run = paragraph.add_run(clean_part)
+        run.bold = is_bold
+        run.italic = is_italic
+
 def clean_text(paragraph):
-    """Limpia espacios dobles y artefactos de párrafo."""
-    if paragraph.text:
-        paragraph.text = " ".join(paragraph.text.split())
+    """Limpia espacios dobles y artefactos de párrafo básicos."""
+    # Nota: No usamos join(split()) aquí porque romperíamos los runs formateados.
+    # La limpieza se hace ahora a nivel de string antes de crear los runs.
+    pass
 
 # -------------------------------
 # CONFIGURACIÓN Y CONSTANTES
@@ -159,10 +197,7 @@ def setup_styles(doc):
 
 def run_book_conversion(md_text, title, author, user_exceptions, size_option):
     """
-    Motor principal que implementa la lógica de libro físico:
-    - Márgenes de espejo.
-    - Capítulos en páginas impares.
-    - Alternancia de sangrías.
+    Motor principal que implementa la lógica de libro físico y procesa Markdown inline.
     """
     doc = Document()
     setup_styles(doc)
@@ -172,12 +207,15 @@ def run_book_conversion(md_text, title, author, user_exceptions, size_option):
     apply_book_layout(current_section, size_option)
 
     # 1. Portada
-    doc.add_paragraph(fix_spanish_casing(title, user_exceptions), style='BookTitle')
-    auth_p = doc.add_paragraph(author)
+    title_p = doc.add_paragraph(style='BookTitle')
+    add_formatted_text(title_p, fix_spanish_casing(title, user_exceptions))
+    
+    auth_p = doc.add_paragraph()
     auth_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    auth_p.runs[0].font.name = 'Garamond'
-    auth_p.runs[0].font.size = Pt(14)
-    auth_p.runs[0].font.italic = True
+    run = auth_p.add_run(author)
+    run.font.name = 'Garamond'
+    run.font.size = Pt(14)
+    run.font.italic = True
     
     # 2. Procesar Contenido
     lines = md_text.split('\n')
@@ -185,7 +223,8 @@ def run_book_conversion(md_text, title, author, user_exceptions, size_option):
     
     for line in lines:
         text = line.strip()
-        if not text: continue
+        if not text: 
+            continue
 
         # Detección de Capítulos
         if text.startswith('# '):
@@ -193,21 +232,29 @@ def run_book_conversion(md_text, title, author, user_exceptions, size_option):
             new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
             apply_book_layout(new_sect, size_option)
             
-            doc.add_paragraph(text[2:], style='Heading 1')
+            p = doc.add_paragraph(style='Heading 1')
+            add_formatted_text(p, text[2:])
             is_first_para_after_heading = True
             
         elif text.startswith('## '):
-            p = doc.add_paragraph(text[3:])
-            p.runs[0].bold = True
-            p.runs[0].font.size = Pt(14)
+            p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(18)
+            add_formatted_text(p, text[3:])
+            # Aplicar formato de subencabezado a los runs creados
+            for run in p.runs:
+                run.bold = True
+                run.font.size = Pt(14)
             is_first_para_after_heading = True
             
         else:
-            # Párrafos de texto
+            # Párrafos de texto con soporte para Markdown inline
             style = 'First Paragraph' if is_first_para_after_heading else 'Body Text'
-            p = doc.add_paragraph(text, style=style)
-            clean_text(p)
+            p = doc.add_paragraph(style=style)
+            
+            # Limpiar espacios dobles antes de procesar runs
+            clean_line = " ".join(text.split())
+            add_formatted_text(p, clean_line)
+            
             is_first_para_after_heading = False
 
     bio = BytesIO()
@@ -219,7 +266,7 @@ def run_book_conversion(md_text, title, author, user_exceptions, size_option):
 # -------------------------------
 
 st.title("📚 Generador de Libros Profesionales")
-st.markdown("Transforma tu Markdown en un archivo Word listo para imprenta (5.5\" x 8.5\").")
+st.markdown("Transforma tu Markdown en un archivo Word maquetado para imprenta, ahora con soporte para **negrita** y *cursiva*.")
 
 with st.sidebar:
     st.header("⚙️ Configuración del Libro")
@@ -238,7 +285,7 @@ with st.sidebar:
         exceptions = st.text_area("Excepciones", placeholder="Ej: Madrid, Cervantes, ONU...")
 
     with st.expander("Motor de Conversión"):
-        engine_opt = ["Motor Editorial (Recomendado para libros)"]
+        engine_opt = ["Motor Editorial (Analizador de Markdown nativo)"]
         if PANDOC_AVAILABLE: engine_opt.append("Pandoc (General)")
         selected_engine = st.selectbox("Motor", engine_opt)
 
@@ -250,7 +297,8 @@ with tab_edit:
     content = ""
     if uploaded_md:
         content = uploaded_md.read().decode("utf-8")
-    content = st.text_area("Contenido Markdown", value=content, height=450)
+    content = st.text_area("Contenido Markdown", value=content, height=450, 
+                           placeholder="Escribe aquí... Usa **negrita** y *cursiva* para probar.")
 
 with tab_preview:
     if content:
@@ -266,7 +314,7 @@ if st.button("🚀 Generar Archivo para Imprenta", use_container_width=True):
     if not content.strip():
         st.error("Escribe contenido antes de continuar.")
     else:
-        with st.spinner("Maquetando páginas y ajustando márgenes..."):
+        with st.spinner("Convirtiendo Markdown y maquetando páginas..."):
             # Procesar capitalización si aplica
             final_content = content
             if apply_fix:
@@ -277,12 +325,12 @@ if st.button("🚀 Generar Archivo para Imprenta", use_container_width=True):
                 if "Motor Editorial" in selected_engine:
                     result = run_book_conversion(final_content, doc_title, doc_author, exceptions, size_mode)
                 else:
-                    # Fallback a Pandoc si está seleccionado
+                    # Fallback a Pandoc si está seleccionado y disponible
                     result = pypandoc.convert_text(final_content, "docx", format="md")
 
-                st.success("✅ ¡Manuscrito generado con éxito!")
+                st.success("✅ ¡Manuscrito convertido y generado con éxito!")
                 st.download_button(
-                    label="📥 Descargar DOCX para Imprenta",
+                    label="📥 Descargar DOCX Formateado",
                     data=result,
                     file_name=f"{file_name}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
