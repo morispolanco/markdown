@@ -58,7 +58,7 @@ def add_toc_field(paragraph):
     run = paragraph.add_run()
     instrText = OxmlElement('w:instrText')
     instrText.set(qn('xml:space'), 'preserve')
-    instrText.text = 'TOC \\o "1-3" \\h \\z \\u'
+    instrText.text = 'TOC \\o "1-4" \\h \\z \\u'
     run._r.append(instrText)
 
     run = paragraph.add_run()
@@ -106,17 +106,19 @@ def apply_layout(section, size_option):
         section.right_margin = Inches(0.75)
     else:
         section.page_width, section.page_height = Inches(8.27), Inches(11.69)
-        section.top_margin, section.bottom_margin = Inches(1), Inches(1)
-        section.left_margin, section.right_margin = Inches(1.25), Inches(1)
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1.25)
+        section.right_margin = Inches(1)
     
     set_mirror_margins(section)
     add_page_number(section.footer)
 
 def setup_styles(doc):
-    """Configura los estilos Heading 1, 2, 3 y Body Text."""
+    """Configura los estilos Heading 1, 2, 3, 4 y Body Text según especificaciones."""
     styles = doc.styles
     
-    # Texto normal
+    # Texto normal (Cuerpo del libro)
     if 'Body Text' not in styles: styles.add_style('Body Text', 1)
     body = styles['Body Text']
     body.font.name, body.font.size = 'Garamond', Pt(11)
@@ -124,25 +126,37 @@ def setup_styles(doc):
     body.paragraph_format.line_spacing = 1.2
     body.paragraph_format.first_line_indent = Inches(0.25)
 
-    # Heading 1 (Capítulos)
+    # Heading 1: Aptos 16 pts (Capítulos)
     h1 = styles['Heading 1']
-    h1.font.name, h1.font.size, h1.font.bold = 'Garamond', Pt(24), False
+    h1.font.name, h1.font.size = 'Aptos', Pt(16)
+    h1.font.bold = True
     h1.font.color.rgb = RGBColor(0,0,0)
     h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     h1.paragraph_format.space_before, h1.paragraph_format.space_after = Inches(2.0), Inches(1.0)
     h1.paragraph_format.keep_with_next = True
 
-    # Heading 2 (Secciones)
+    # Heading 2: Aptos 14 pts
     h2 = styles['Heading 2']
-    h2.font.name, h2.font.size, h2.font.bold = 'Garamond', Pt(16), True
+    h2.font.name, h2.font.size = 'Aptos', Pt(14)
+    h2.font.bold = True
     h2.font.color.rgb = RGBColor(0,0,0)
     h2.paragraph_format.space_before, h2.paragraph_format.space_after = Pt(18), Pt(12)
 
-    # Heading 3 (Subsecciones)
+    # Heading 3: Aptos 12 pts, Negrita y Cursiva
     h3 = styles['Heading 3']
-    h3.font.name, h3.font.size, h3.font.italic = 'Garamond', Pt(13), True
+    h3.font.name, h3.font.size = 'Aptos', Pt(12)
+    h3.font.bold, h3.font.italic = True, True
     h3.font.color.rgb = RGBColor(0,0,0)
     h3.paragraph_format.space_before, h3.paragraph_format.space_after = Pt(12), Pt(6)
+
+    # Heading 4: Aptos 12 pts, Cursiva
+    if 'Heading 4' not in styles:
+        styles.add_style('Heading 4', WD_STYLE_TYPE.PARAGRAPH)
+    h4 = styles['Heading 4']
+    h4.font.name, h4.font.size = 'Aptos', Pt(12)
+    h4.font.bold, h4.font.italic = False, True
+    h4.font.color.rgb = RGBColor(0,0,0)
+    h4.paragraph_format.space_before, h4.paragraph_format.space_after = Pt(10), Pt(4)
 
     return doc
 
@@ -160,18 +174,21 @@ def run_book_conversion(md_text, meta, size_option):
     
     p_title = doc.add_paragraph(meta['title'])
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_title.runs[0].font.name = 'Aptos'
     p_title.runs[0].font.size = Pt(32)
     p_title.runs[0].font.bold = True
     
     if meta['subtitle']:
         p_sub = doc.add_paragraph(meta['subtitle'])
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_sub.runs[0].font.name = 'Aptos'
         p_sub.runs[0].font.size = Pt(18)
     
     for _ in range(6): doc.add_paragraph()
     
     p_author = doc.add_paragraph(meta['author'])
     p_author.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_author.runs[0].font.name = 'Garamond'
     p_author.runs[0].font.size = Pt(16)
     p_author.runs[0].font.italic = True
 
@@ -188,7 +205,7 @@ def run_book_conversion(md_text, meta, size_option):
     toc_p = doc.add_paragraph()
     add_toc_field(toc_p)
     
-    # 4. PÁGINA BLANCA
+    # 4. PÁGINA BLANCA (Asegura que el contenido empiece en Impar)
     doc.add_page_break()
     doc.add_paragraph("")
     
@@ -206,12 +223,14 @@ def run_book_conversion(md_text, meta, size_option):
             level = len(hashes)
             
             if level == 1:
-                # Nueva sección en página IMPAR para capítulos
+                # Nueva sección en página IMPAR para capítulos principales
                 new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
                 apply_layout(new_sect, size_option)
                 p = doc.add_paragraph(style='Heading 1')
             else:
-                p = doc.add_paragraph(style=f'Heading {min(level, 3)}')
+                # Soporte hasta Título 4 según especificación
+                style_name = f'Heading {min(level, 4)}'
+                p = doc.add_paragraph(style=style_name)
             
             add_formatted_text(p, content)
             is_first_para = True
@@ -231,7 +250,7 @@ def run_book_conversion(md_text, meta, size_option):
 # -------------------------------
 
 st.title("📚 Generador Editorial Profesional")
-st.markdown("Crea documentos Word con secciones Recto/Verso, numeración y estilos nativos.")
+st.markdown("Documentos Word con tipografía **Aptos**, numeración y secciones Recto/Verso.")
 
 with st.sidebar:
     st.header("Metadatos")
@@ -240,18 +259,19 @@ with st.sidebar:
     m_author = st.text_input("Autor", "Nombre del Autor")
     m_pub = st.text_input("Editorial", "Mi Editorial")
     m_year = st.text_input("Año", str(datetime.now().year))
-    m_file = st.text_input("Nombre de archivo", "libro_maquetado")
+    m_file = st.text_input("Nombre de archivo", "libro_maquetado_aptos")
     size_mode = st.selectbox("Formato", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
     m_copy = st.text_area("Copyright", f"© {datetime.now().year} {m_author}. Todos los derechos reservados.")
 
-content = st.text_area("Contenido Markdown", height=400, placeholder="# Capítulo 1\nTexto del capítulo...")
+content = st.text_area("Contenido Markdown", height=400, placeholder="# Capítulo 1\n## Sección\n### Subsección importante\n#### Detalle menor")
 
 if st.button("🚀 Generar y Descargar", use_container_width=True):
     if content:
         meta = {'title': m_title, 'subtitle': m_sub, 'author': m_author, 
                 'publisher': m_pub, 'year': m_year, 'copyright': m_copy}
         result = run_book_conversion(content, meta, size_mode)
-        st.success("Documento generado. Al abrirlo, actualice el índice.")
+        st.success("¡Documento generado exitosamente!")
+        st.info("Nota: Al abrir el archivo en Word, haga clic derecho sobre el índice y seleccione 'Actualizar campo'.")
         st.download_button("📥 Descargar .docx", result, f"{m_file}.docx")
     else:
-        st.error("Introduce contenido Markdown.")
+        st.error("Por favor, introduce contenido en formato Markdown.")
