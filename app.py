@@ -4,144 +4,212 @@ import tempfile
 import os
 import re
 from docx import Document
-from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.section import WD_SECTION_START
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+# Intentar importar motores opcionales
+try:
+    import pypandoc
+    PANDOC_AVAILABLE = True
+except ImportError:
+    PANDOC_AVAILABLE = False
 
 # -------------------------------
-# CONFIGURACIÓN Y ESTILOS
+# UTILIDADES DE BAJO NIVEL (XML)
 # -------------------------------
-st.set_page_config(page_title="Markdown → Word (Norma Española)", page_icon="📚", layout="centered")
 
-def apply_book_template(doc):
-    """Configuración estética por defecto para estilo libro."""
-    for section in doc.sections:
-        section.top_margin = Inches(0.75)
-        section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.75)
-        section.right_margin = Inches(0.75)
-
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Times New Roman'
-    font.size = Pt(11)
-
-    try:
-        # Estilo Título de Libro (Portada)
-        if 'BookTitle' not in doc.styles:
-            s = doc.styles.add_style('BookTitle', WD_STYLE_TYPE.PARAGRAPH)
-            s.font.name = 'Times New Roman'; s.font.size = Pt(24); s.font.bold = True
-            s.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            s.paragraph_format.space_after = Pt(24)
-
-        # Estilo Títulos de Capítulos (#)
-        if 'ChapterTitle' not in doc.styles:
-            s = doc.styles.add_style('ChapterTitle', WD_STYLE_TYPE.PARAGRAPH)
-            s.font.name = 'Times New Roman'; s.font.size = Pt(18); s.font.bold = True
-            s.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            s.paragraph_format.space_before = Pt(24); s.paragraph_format.space_after = Pt(18)
-
-        # Estilo Párrafo Libro
-        if 'BookParagraph' not in doc.styles:
-            s = doc.styles.add_style('BookParagraph', WD_STYLE_TYPE.PARAGRAPH)
-            s.font.name = 'Times New Roman'; s.font.size = Pt(11)
-            s.paragraph_format.first_line_indent = Inches(0.25)
-            s.paragraph_format.line_spacing = 1.15
-            s.paragraph_format.space_after = Pt(6)
-    except:
-        pass
-    return doc
-
-# -------------------------------
-# LÓGICA DE CAPITALIZACIÓN ESPAÑOLA
-# -------------------------------
-def fix_spanish_casing(text, excepciones_usuario=""):
+def set_mirror_margins(section):
     """
-    Convierte títulos a minúsculas excepto:
-    1. La primera palabra.
-    2. Nombres propios o palabras en la lista de excepciones.
+    Habilita los márgenes simétricos en el XML de Word.
+    Asegura que el 'gutter' (canal de encuadernación) esté siempre en el interior.
     """
+    sectPr = section._sectPr
+    cols = sectPr.xpath('./w:cols')
+    if cols:
+        mirror_margins = OxmlElement('w:mirrorMargins')
+        sectPr.insert(sectPr.index(cols[0]), mirror_margins)
+
+def clean_text(paragraph):
+    """Limpia espacios dobles y artefactos de párrafo."""
+    if paragraph.text:
+        paragraph.text = " ".join(paragraph.text.split())
+
+# -------------------------------
+# CONFIGURACIÓN Y CONSTANTES
+# -------------------------------
+st.set_page_config(
+    page_title="Markdown Editorial Pro", 
+    page_icon="📚", 
+    layout="wide"
+)
+
+# -------------------------------
+# LÓGICA DE PROCESAMIENTO TEXTUAL
+# -------------------------------
+
+def fix_spanish_casing(text, user_exceptions=""):
+    """Aplica la norma de capitalización española a encabezados."""
     if not text: return text
     
-    # Lista base de nombres propios
-    base_excepciones = ["España", "México", "Dios", "Python", "Streamlit", "Pandoc", "Word", "Markdown"]
-    # Unir con excepciones que el usuario escriba en la UI
-    lista_final = base_excepciones + [ex.strip() for ex in excepciones_usuario.split(",") if ex.strip()]
+    base_excepciones = ["España", "México", "Dios", "Python", "Streamlit", "Word", "Markdown", "I", "II", "III", "IV", "V"]
+    user_list = [ex.strip() for ex in user_exceptions.split(",") if ex.strip()]
+    lista_total = set(base_excepciones + user_list)
 
-    def procesar_frase(frase):
-        palabras = frase.split()
+    def process_segment(segment):
+        palabras = segment.split()
+        if not palabras: return ""
         resultado = []
         for i, word in enumerate(palabras):
-            clean_word = re.sub(r'[^\w]', '', word)
+            clean_word = re.sub(r'[^\wáéíóúÁÉÍÓÚñÑ]', '', word)
             if i == 0:
-                resultado.append(word.capitalize())
-            elif clean_word in lista_final:
+                resultado.append(word[0].upper() + word[1:] if len(word) > 1 else word.upper())
+            elif clean_word in lista_total or clean_word.istitle():
                 resultado.append(word)
             else:
                 resultado.append(word.lower())
         return " ".join(resultado)
 
-    # Si el texto es una línea de Markdown con #, preservamos los #
     match = re.match(r'^(#+)\s+(.+)$', text)
     if match:
-        return f"{match.group(1)} {procesar_frase(match.group(2))}"
-    return procesar_frase(text)
+        hashes = match.group(1)
+        content = match.group(2)
+        return f"{hashes} {process_segment(content)}"
+    return process_segment(text)
 
 # -------------------------------
-# MOTORES DE CONVERSIÓN
+# GESTIÓN DE ESTILOS PROFESIONALES
 # -------------------------------
-def convert_with_pandoc(md_text, template_bytes=None):
-    import pypandoc
-    extra_args = ["--standalone"]
-    tmp_template_path = None
-    
-    if template_bytes:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_template:
-            tmp_template.write(template_bytes)
-            tmp_template_path = tmp_template.name
-        extra_args.append(f"--reference-doc={tmp_template_path}")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_out:
-        out_path = tmp_out.name
-        pypandoc.convert_text(md_text, "docx", format="md", outputfile=out_path, extra_args=extra_args)
-        with open(out_path, "rb") as f:
-            data = f.read()
-    
-    if os.path.exists(out_path): os.remove(out_path)
-    if tmp_template_path and os.path.exists(tmp_template_path): os.remove(tmp_template_path)
-    return data
+def apply_book_layout(section, size_option="Trade Paperback (5.5x8.5)"):
+    """Aplica tamaño de papel y márgenes profesionales."""
+    if size_option == "Trade Paperback (5.5x8.5)":
+        section.page_width = Inches(5.5)
+        section.page_height = Inches(8.5)
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.875)
+        section.left_margin = Inches(0.875)  # Interior (Gutter)
+        section.right_margin = Inches(0.75)  # Exterior
+    else:
+        # A4 estándar
+        section.page_width = Inches(8.27)
+        section.page_height = Inches(11.69)
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1.25)
+        section.right_margin = Inches(1)
 
-def convert_with_python(md_text, template_bytes=None):
-    import markdown
-    from htmldocx import HtmlToDocx
-    md_html = markdown.markdown(md_text, extensions=["extra", "fenced_code", "sane_lists", "toc"])
-    
-    doc = Document(BytesIO(template_bytes)) if template_bytes else apply_book_template(Document())
-    HtmlToDocx().add_html_to_document(md_html, doc)
-    
-    bio = BytesIO()
-    doc.save(bio)
-    return bio.getvalue()
+    set_mirror_margins(section)
 
-def create_book_document(md_text, title, author, ex_words):
-    """Motor predefinido con estructura de libro."""
-    doc = apply_book_template(Document())
-    
-    # Título principal con capitalización corregida
-    doc.add_paragraph(fix_spanish_casing(title, ex_words), style='BookTitle')
-    doc.add_paragraph(f"Por: {author}", style='Normal').paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_page_break()
+def setup_styles(doc):
+    """Define la tipografía Garamond y jerarquías de libro."""
+    styles = doc.styles
 
+    # --- Texto Base (Cuerpo con sangría) ---
+    if 'Body Text' not in styles:
+        styles.add_style('Body Text', 1)
+    body = styles['Body Text']
+    body.font.name = 'Garamond'
+    body.font.size = Pt(11)
+    body.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    body.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    body.paragraph_format.line_spacing = 1.2
+    body.paragraph_format.first_line_indent = Inches(0.25)
+    body.paragraph_format.widow_control = True
+    body.paragraph_format.space_after = Pt(0)
+
+    # --- Primer Párrafo (Sin sangría) ---
+    if 'First Paragraph' not in styles:
+        styles.add_style('First Paragraph', 1)
+    fp = styles['First Paragraph']
+    fp.font.name = 'Garamond'
+    fp.font.size = Pt(11)
+    fp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    fp.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    fp.paragraph_format.line_spacing = 1.2
+    fp.paragraph_format.first_line_indent = 0
+    fp.paragraph_format.space_after = Pt(0)
+
+    # --- Título de Capítulo (Heading 1) ---
+    h1 = styles['Heading 1']
+    h1.font.name = 'Garamond'
+    h1.font.size = Pt(22)
+    h1.font.bold = False
+    h1.font.color.rgb = RGBColor(0,0,0)
+    h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    h1.paragraph_format.space_before = Inches(2.0)
+    h1.paragraph_format.space_after = Inches(1.0)
+    h1.paragraph_format.keep_with_next = True
+
+    # --- Título de Obra (Portada) ---
+    if 'BookTitle' not in styles:
+        s = styles.add_style('BookTitle', WD_STYLE_TYPE.PARAGRAPH)
+        s.font.name = 'Garamond'; s.font.size = Pt(28); s.font.bold = True
+        s.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        s.paragraph_format.space_before = Inches(1.5)
+
+    return doc
+
+# -------------------------------
+# MOTOR DE CONVERSIÓN MEJORADO
+# -------------------------------
+
+def run_book_conversion(md_text, title, author, user_exceptions, size_option):
+    """
+    Motor principal que implementa la lógica de libro físico:
+    - Márgenes de espejo.
+    - Capítulos en páginas impares.
+    - Alternancia de sangrías.
+    """
+    doc = Document()
+    setup_styles(doc)
+    
+    # Configurar primera sección (Portada)
+    current_section = doc.sections[0]
+    apply_book_layout(current_section, size_option)
+
+    # 1. Portada
+    doc.add_paragraph(fix_spanish_casing(title, user_exceptions), style='BookTitle')
+    auth_p = doc.add_paragraph(author)
+    auth_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    auth_p.runs[0].font.name = 'Garamond'
+    auth_p.runs[0].font.size = Pt(14)
+    auth_p.runs[0].font.italic = True
+    
+    # 2. Procesar Contenido
     lines = md_text.split('\n')
+    is_first_para_after_heading = False
+    
     for line in lines:
-        if line.startswith('# '):
-            doc.add_paragraph(line[2:].strip(), style='ChapterTitle')
-        elif line.startswith('## '):
-            p = doc.add_paragraph(line[3:].strip())
-            p.bold = True
-        elif line.strip():
-            doc.add_paragraph(line.strip(), style='BookParagraph')
+        text = line.strip()
+        if not text: continue
+
+        # Detección de Capítulos
+        if text.startswith('# '):
+            # Nuevo capítulo -> Nueva sección en página IMPAR (Recto)
+            new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
+            apply_book_layout(new_sect, size_option)
             
+            doc.add_paragraph(text[2:], style='Heading 1')
+            is_first_para_after_heading = True
+            
+        elif text.startswith('## '):
+            p = doc.add_paragraph(text[3:])
+            p.runs[0].bold = True
+            p.runs[0].font.size = Pt(14)
+            p.paragraph_format.space_before = Pt(18)
+            is_first_para_after_heading = True
+            
+        else:
+            # Párrafos de texto
+            style = 'First Paragraph' if is_first_para_after_heading else 'Body Text'
+            p = doc.add_paragraph(text, style=style)
+            clean_text(p)
+            is_first_para_after_heading = False
+
     bio = BytesIO()
     doc.save(bio)
     return bio.getvalue()
@@ -149,59 +217,76 @@ def create_book_document(md_text, title, author, ex_words):
 # -------------------------------
 # INTERFAZ DE USUARIO (UI)
 # -------------------------------
-st.title("📚 Markdown a Word")
+
+st.title("📚 Generador de Libros Profesionales")
+st.markdown("Transforma tu Markdown en un archivo Word listo para imprenta (5.5\" x 8.5\").")
 
 with st.sidebar:
-    st.header("⚙️ Configuración")
-    motor = st.radio("Motor de conversión", ["Pandoc (Recomendado)", "Motor ligero (Python)", "Plantilla de libro"])
+    st.header("⚙️ Configuración del Libro")
     
-    st.subheader("Norma Española")
-    corregir = st.checkbox("Corregir mayúsculas en títulos", value=True)
-    excepciones_input = st.text_area("Excepciones (Nombres propios, títulos de libros)", 
-                                     placeholder="Don Quijote, Harry Potter, Madrid...")
-    
-    template_file = st.file_uploader("Subir plantilla .docx base", type=["docx"])
-    nombre_archivo = st.text_input("Nombre del archivo de salida", "mi_documento")
+    with st.expander("Metadatos", expanded=True):
+        doc_title = st.text_input("Título de la Obra", "Título del Libro")
+        doc_author = st.text_input("Autor/a", "Nombre del Autor")
+        file_name = st.text_input("Nombre de archivo", "manuscrito_final")
 
-archivo_md = st.file_uploader("Sube tu archivo Markdown", type=["md", "txt"])
-texto_area = st.text_area("O pega tu contenido aquí", height=250)
+    with st.expander("Maquetación Física"):
+        size_mode = st.selectbox("Formato de impresión", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
+        st.info("El formato Trade Paperback incluye márgenes simétricos y capítulos en páginas derechas.")
 
-contenido = archivo_md.read().decode("utf-8") if archivo_md else texto_area
+    with st.expander("Normativa Española"):
+        apply_fix = st.checkbox("Corregir mayúsculas en títulos", value=True)
+        exceptions = st.text_area("Excepciones", placeholder="Ej: Madrid, Cervantes, ONU...")
 
-if st.button("🚀 Convertir y Descargar"):
-    if contenido.strip():
-        # 1. PROCESAR CAPITALIZACIÓN SI ESTÁ ACTIVO
-        if corregir:
-            lineas = contenido.split('\n')
-            contenido_procesado = []
-            for l in lineas:
-                if l.startswith('#'):
-                    contenido_procesado.append(fix_spanish_casing(l, excepciones_input))
-                else:
-                    contenido_procesado.append(l)
-            contenido = '\n'.join(contenido_procesado)
+    with st.expander("Motor de Conversión"):
+        engine_opt = ["Motor Editorial (Recomendado para libros)"]
+        if PANDOC_AVAILABLE: engine_opt.append("Pandoc (General)")
+        selected_engine = st.selectbox("Motor", engine_opt)
 
-        # 2. GENERAR DOCX
-        t_bytes = template_file.read() if template_file else None
-        
-        try:
-            if motor.startswith("Pandoc"):
-                res = convert_with_pandoc(contenido, t_bytes)
-            elif motor.startswith("Motor ligero"):
-                res = convert_with_python(contenido, t_bytes)
-            else:
-                res = create_book_document(contenido, "Título de Obra", "Autor", excepciones_input)
+# Pestañas
+tab_edit, tab_preview = st.tabs(["📝 Manuscrito", "🔍 Previsualización de Títulos"])
 
-            st.success("¡Documento generado con éxito!")
-            st.download_button(
-                label="⬇️ Descargar archivo Word",
-                data=res,
-                file_name=f"{nombre_archivo}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-        except Exception as e:
-            st.error(f"Error en la conversión: {e}")
-            if "pypandoc" in str(e):
-                st.info("Nota: Pandoc requiere que el software esté instalado en el servidor/PC.")
+with tab_edit:
+    uploaded_md = st.file_uploader("Cargar .md", type=["md", "txt"])
+    content = ""
+    if uploaded_md:
+        content = uploaded_md.read().decode("utf-8")
+    content = st.text_area("Contenido Markdown", value=content, height=450)
+
+with tab_preview:
+    if content:
+        st.subheader("Tratamiento de Títulos (Norma Española)")
+        for l in content.split('\n'):
+            if l.startswith('#'):
+                st.write(f"Original: `{l}`")
+                st.write(f"Corregido: `{fix_spanish_casing(l, exceptions)}`")
+                st.divider()
+
+st.divider()
+if st.button("🚀 Generar Archivo para Imprenta", use_container_width=True):
+    if not content.strip():
+        st.error("Escribe contenido antes de continuar.")
     else:
-        st.warning("Escribe o sube algún contenido antes de convertir.")
+        with st.spinner("Maquetando páginas y ajustando márgenes..."):
+            # Procesar capitalización si aplica
+            final_content = content
+            if apply_fix:
+                lines = content.split('\n')
+                final_content = '\n'.join([fix_spanish_casing(l, exceptions) if l.startswith('#') else l for l in lines])
+
+            try:
+                if "Motor Editorial" in selected_engine:
+                    result = run_book_conversion(final_content, doc_title, doc_author, exceptions, size_mode)
+                else:
+                    # Fallback a Pandoc si está seleccionado
+                    result = pypandoc.convert_text(final_content, "docx", format="md")
+
+                st.success("✅ ¡Manuscrito generado con éxito!")
+                st.download_button(
+                    label="📥 Descargar DOCX para Imprenta",
+                    data=result,
+                    file_name=f"{file_name}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Error: {e}")
