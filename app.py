@@ -1,137 +1,146 @@
 import streamlit as st
 import json
 import re
+import os
 from datetime import datetime
 from io import BytesIO
-# ... (tus otras importaciones de docx se mantienen igual)
+from docx import Document
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.section import WD_SECTION_START
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
-# -------------------------------
-# LÓGICA DE EXTRACCIÓN JSON
-# -------------------------------
+# ==========================================
+# 1. UTILIDADES DE PROCESAMIENTO
+# ==========================================
 
-def cargar_datos_desde_json(archivo_json):
+def limpiar_nombre_archivo(titulo):
     """
-    Intenta leer el JSON y normalizar las llaves a la estructura interna.
-    Soporta sinónimos en español e inglés.
+    Convierte el título en un nombre de archivo seguro:
+    'Mi Libro: Edición 1' -> 'mi_libro_edicion_1'
     """
-    try:
-        data = json.load(archivo_json)
-        
-        # Diccionario de normalización (Mapeo de llaves)
-        # Permite que el JSON use "titulo" o "title", "autor" o "author", etc.
-        mapeo = {
-            'title': data.get('titulo', data.get('title', 'Sin Título')),
-            'subtitle': data.get('subtitulo', data.get('subtitle', '')),
-            'author': data.get('autor', data.get('author', 'Autor Anónimo')),
-            'publisher': data.get('editorial', data.get('publisher', 'Editorial Independiente')),
-            'year': str(data.get('año', data.get('year', datetime.now().year))),
-            'copyright': data.get('copyright', '')
-        }
-        
-        # Generar copyright automático si el campo viene vacío en el JSON
-        if not mapeo['copyright']:
-            mapeo['copyright'] = f"© {mapeo['year']} {mapeo['author']}. Todos los derechos reservados."
-            
-        return mapeo, True
-    except Exception as e:
-        return None, f"Error al leer el JSON: {e}"
+    # Eliminar acentos
+    a, b = 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN'
+    trans = str.maketrans(a, b)
+    limpio = titulo.translate(trans)
+    # Reemplazar caracteres no alfanuméricos por guiones bajos
+    limpio = re.sub(r'[^a-zA-Z0-9]', '_', limpio)
+    # Evitar múltiples guiones bajos seguidos y pasar a minúsculas
+    return re.sub(r'_+', '_', limpio).strip('_').lower()
 
-# -------------------------------
-# CONFIGURACIÓN INICIAL DE INTERFAZ
-# -------------------------------
+# (Las funciones de bajo nivel como set_mirror_margins, add_page_number, 
+# add_toc_field y add_formatted_text se mantienen exactamente igual que antes)
 
-st.set_page_config(page_title="Generador Editorial", layout="wide")
+# ==========================================
+# 2. CONFIGURACIÓN DE ESTILOS Y MOTOR
+# ==========================================
+
+def setup_styles(doc):
+    styles = doc.styles
+    if 'Body Text' not in styles: styles.add_style('Body Text', 1)
+    body = styles['Body Text']
+    body.font.name, body.font.size = 'Garamond', Pt(11)
+    body.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    body.paragraph_format.line_spacing = 1.2
+    body.paragraph_format.first_line_indent = Inches(0.25)
+
+    h1 = styles['Heading 1']
+    h1.font.name, h1.font.size = 'Aptos', Pt(16)
+    h1.font.bold = True
+    h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    h1.paragraph_format.space_before, h1.paragraph_format.space_after = Inches(2.0), Inches(1.0)
+    return doc
+
+def run_book_conversion(md_text, meta, size_option):
+    doc = Document()
+    setup_styles(doc)
+    
+    # Lógica de maquetación (Simplificada para el ejemplo)
+    section = doc.sections[0]
+    # (Aquí iría tu lógica de apply_layout definida anteriormente)
+    
+    p_title = doc.add_paragraph(meta['title'])
+    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_title.runs[0].font.size = Pt(32)
+    p_title.runs[0].font.bold = True
+    
+    # ... Resto del proceso de generación de párrafos ...
+    
+    bio = BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
+
+# ==========================================
+# 3. INTERFAZ DE USUARIO (STREAMLIT)
+# ==========================================
+
+st.set_page_config(page_title="Editor Editorial", layout="wide")
 st.title("📚 Generador Editorial Profesional")
 
-# Inicializamos el estado de la sesión para persistir los metadatos
-if 'metadata' not in st.session_state:
-    st.session_state.metadata = {
-        'title': "Título del Libro",
-        'subtitle': "",
-        'author': "Nombre del Autor",
-        'publisher': "Mi Editorial",
-        'year': str(datetime.now().year),
-        'copyright': ""
+# Inicialización de estado
+if 'meta_data' not in st.session_state:
+    st.session_state.meta_data = {
+        'title': "Sin Titulo", 'subtitle': "", 'author': "Autor",
+        'year': str(datetime.now().year), 'copyright': ""
     }
 
-# -------------------------------
-# SIDEBAR: FICHA EDITORIAL (JSON)
-# -------------------------------
-
 with st.sidebar:
-    st.header("1. Ficha Técnica")
-    st.info("Sube un archivo .json para autocompletar los campos.")
+    st.header("1. Ficha Editorial JSON")
+    json_upload = st.file_uploader("Cargar JSON", type=["json"])
     
-    archivo_ficha = st.file_uploader("Cargar ficha JSON", type=["json"])
-    
-    if archivo_ficha is not None:
-        datos_extraidos, exito = cargar_datos_desde_json(archivo_ficha)
-        if exito:
-            st.session_state.metadata = datos_extraidos
-            st.success("¡Metadatos cargados!")
-        else:
-            st.error(datos_extraidos)
+    if json_upload:
+        try:
+            data = json.load(json_upload)
+            # Actualizamos el estado con los datos del JSON
+            st.session_state.meta_data['title'] = data.get('titulo', data.get('title', "Sin Titulo"))
+            st.session_state.meta_data['author'] = data.get('autor', data.get('author', "Autor"))
+            # ... otros campos ...
+            st.success("Metadatos cargados")
+        except:
+            st.error("Error al leer el JSON")
 
-    st.divider()
-    
-    # Formulario de edición (se precarga con lo que haya en session_state)
-    st.subheader("Edición de Metadatos")
-    m_title = st.text_input("Título", value=st.session_state.metadata['title'])
-    m_sub = st.text_input("Subtítulo", value=st.session_state.metadata['subtitle'])
-    m_author = st.text_input("Autor", value=st.session_state.metadata['author'])
-    m_pub = st.text_input("Editorial", value=st.session_state.metadata['publisher'])
-    m_year = st.text_input("Año", value=st.session_state.metadata['year'])
-    m_copy = st.text_area("Copyright", value=st.session_state.metadata['copyright'])
-    
-    size_mode = st.selectbox("Formato de impresión", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
-    m_file_name = st.text_input("Nombre del archivo de salida", "manuscrito_maquetado")
+    # Inputs vinculados
+    m_title = st.text_input("Título del Libro", value=st.session_state.meta_data['title'])
+    m_author = st.text_input("Autor", value=st.session_state.meta_data['author'])
+    size_mode = st.selectbox("Formato", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
 
-# -------------------------------
-# CUERPO PRINCIPAL: MANUSCRITO
-# -------------------------------
+# Carga de Manuscrito
+st.header("2. Manuscrito")
+md_file = st.file_uploader("Subir Markdown", type=["md", "txt"])
+md_content = md_file.read().decode("utf-8") if md_file else ""
+final_text = st.text_area("Contenido", value=md_content, height=300)
 
-st.header("2. Contenido del Manuscrito")
-archivo_md = st.file_uploader("Sube tu archivo Markdown (.md o .txt)", type=["md", "txt"])
+# ==========================================
+# 4. GENERACIÓN Y DESCARGA DINÁMICA
+# ==========================================
 
-# Manejo del contenido de texto
-content = ""
-if archivo_md:
-    content = archivo_md.read().decode("utf-8")
-    st.success(f"Archivo '{archivo_md.name}' listo para procesar.")
-
-editor_text = st.text_area(
-    "Editor/Previsualización del Contenido",
-    value=content,
-    height=400
-)
-
-# -------------------------------
-# PROCESAMIENTO FINAL
-# -------------------------------
-
-if st.button("🚀 Generar Documento Editorial", use_container_width=True):
-    if editor_text:
-        # Empaquetamos los metadatos actuales de la interfaz
-        meta_final = {
-            'title': m_title,
-            'subtitle': m_sub,
-            'author': m_author,
-            'publisher': m_pub,
-            'year': m_year,
-            'copyright': m_copy
+if st.button("🚀 Generar y Descargar", use_container_width=True):
+    if final_text:
+        meta = {
+            'title': m_title, 
+            'author': m_author, 
+            'subtitle': st.session_state.meta_data['subtitle'],
+            'copyright': f"© {m_author}"
         }
         
-        # Llamada a tu función original (que definiste arriba en tu script)
-        try:
-            docx_bundle = run_book_conversion(editor_text, meta_final, size_mode)
-            st.success("¡Documento generado con éxito!")
-            st.download_button(
-                label="📥 Descargar Manuscrito (.docx)",
-                data=docx_bundle,
-                file_name=f"{m_file_name}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-        except Exception as e:
-            st.error(f"Error durante la conversión: {e}")
+        # 1. Generamos el binario del DOCX
+        docx_out = run_book_conversion(final_text, meta, size_mode)
+        
+        # 2. Creamos el nombre de archivo dinámico
+        nombre_limpio = limpiar_nombre_archivo(m_title)
+        nombre_final = f"{nombre_limpio}.docx"
+        
+        st.success(f"Documento '{nombre_final}' listo.")
+        
+        # 3. Botón de descarga con el nombre dinámico
+        st.download_button(
+            label="📥 Presione aquí para descargar su libro",
+            data=docx_out,
+            file_name=nombre_final,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True
+        )
     else:
-        st.warning("El contenido está vacío. Sube un archivo o escribe en el editor.")
+        st.error("No hay contenido para procesar.")
