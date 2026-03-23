@@ -23,7 +23,6 @@ def set_mirror_margins(section):
         sectPr.insert(sectPr.index(cols[0]), mirror_margins)
 
 def add_page_number(footer):
-    """Añade número de página al footer (se ocultará en portada por configuración de sección)."""
     if not footer.paragraphs:
         footer.add_paragraph()
     paragraph = footer.paragraphs[0]
@@ -61,24 +60,23 @@ def add_formatted_text(paragraph, text):
         run.bold, run.italic = is_bold, is_italic
 
 # ==========================================
-# 2. CONFIGURACIÓN DE ESTILOS Y MOTOR
+# 2. CONFIGURACIÓN DE ESTILOS Y MAQUETACIÓN
 # ==========================================
 
 def setup_styles(doc):
     styles = doc.styles
-    # Cuerpo
     if 'Body Text' not in styles: styles.add_style('Body Text', 1)
     body = styles['Body Text']
     body.font.name, body.font.size = 'Garamond', Pt(11)
     body.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     body.paragraph_format.first_line_indent = Inches(0.25)
+    body.paragraph_format.line_spacing = 1.15
 
-    # Título 1 (Capítulos)
     h1 = styles['Heading 1']
     h1.font.name, h1.font.size = 'Aptos', Pt(24)
     h1.font.bold = True
     h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    h1.paragraph_format.space_before = Pt(0) # Cero espacio antes solicitado
+    h1.paragraph_format.space_before = Pt(0) 
     h1.paragraph_format.space_after = Pt(24)
     return doc
 
@@ -93,53 +91,58 @@ def apply_layout(section, size_option, is_first=False):
         section.left_margin, section.right_margin = Inches(1.25), Inches(1)
     
     set_mirror_margins(section)
-    
-    # Configuración para que la primera página no tenga número
-    if is_first:
-        section.different_first_page_header_footer = True
-        # El footer de la primera página se deja vacío automáticamente al no llamarlo
-    else:
+    section.different_first_page_header_footer = is_first
+    if not is_first:
         add_page_number(section.footer)
+
+# ==========================================
+# 3. MOTOR DE CONVERSIÓN
+# ==========================================
 
 def run_book_conversion(md_text, meta, size_option):
     doc = Document()
     setup_styles(doc)
     
-    # --- 1. PORTADA ---
+    # --- PÁGINA 1: PORTADA ---
     section = doc.sections[0]
     apply_layout(section, size_option, is_first=True)
     
-    # Título (Sin espacios antes)
+    # Título (Cero espacio antes)
     p_title = doc.add_paragraph(meta['title'], style='Heading 1')
-    p_title.runs[0].font.size = Pt(36)
+    p_title.runs[0].font.size = Pt(34)
     
     if meta.get('subtitle'):
         p_sub = doc.add_paragraph(meta['subtitle'])
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_sub.runs[0].font.size = Pt(18)
+        p_sub.add_run().font.size = Pt(18)
 
-    # Espacio flexible para empujar autor y editorial hacia abajo
-    for _ in range(10): doc.add_paragraph()
+    # Espacio para empujar autor y editorial
+    for _ in range(12): doc.add_paragraph()
 
     # Autor
-    p_author = doc.add_paragraph(meta['author'])
+    p_author = doc.add_paragraph()
     p_author.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_author.runs[0].font.size = Pt(18)
-    p_author.runs[0].italic = True
+    run_a = p_author.add_run(meta['author'])
+    run_a.font.size = Pt(18)
+    run_a.italic = True
 
-    # Editorial (Debajo del autor en la primera página)
-    p_pub = doc.add_paragraph(meta['publisher'])
+    # Editorial (Debajo del autor)
+    p_pub = doc.add_paragraph()
     p_pub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_pub.runs[0].font.size = Pt(14)
-    p_pub.runs[0].bold = True
+    run_p = p_pub.add_run(meta['publisher'])
+    run_p.font.size = Pt(14)
+    run_p.bold = True
 
-    # --- 2. CRÉDITOS ---
+    # --- PÁGINA 2: CRÉDITOS ---
     doc.add_page_break()
     p_copy = doc.add_paragraph()
     p_copy.paragraph_format.space_before = Inches(5.0)
-    p_copy.add_run(meta['copyright']).font.size = Pt(9)
+    # Insertar el texto completo de copyright
+    run_c = p_copy.add_run(meta['copyright'])
+    run_c.font.size = Pt(9)
+    run_c.font.name = 'Garamond'
     
-    # --- 3. CONTENIDO ---
+    # --- CONTENIDO ---
     is_after_heading = False
     for line in md_text.split('\n'):
         clean = line.strip()
@@ -171,44 +174,75 @@ def limpiar_nombre(t):
     return re.sub(r'[^a-z0-9]', '_', t.lower().replace(' ','_'))
 
 # ==========================================
-# 3. INTERFAZ STREAMLIT
+# 4. INTERFAZ STREAMLIT
 # ==========================================
 
 st.set_page_config(page_title="Maquetador Pro")
 st.title("📚 Generador Editorial")
 
+# Estado inicial para evitar pérdidas de datos al recargar
 if 'meta' not in st.session_state:
-    st.session_state.meta = {'title': "", 'subtitle': "", 'author': "", 'publisher': "", 'year': "2026", 'copyright': ""}
+    st.session_state.meta = {
+        'title': "Título del Libro", 
+        'subtitle': "", 
+        'author': "Autor", 
+        'publisher': "Editorial", 
+        'year': "2026", 
+        'copyright': ""
+    }
 
 with st.sidebar:
-    st.header("Ficha JSON")
-    json_up = st.file_uploader("Subir Ficha", type=["json"])
+    st.header("1. Cargar Ficha JSON")
+    json_up = st.file_uploader("Subir archivo .json", type=["json"])
+    
     if json_up:
-        data = json.load(json_up)
-        st.session_state.meta.update({
-            'title': data.get('titulo', data.get('title', "")),
-            'subtitle': data.get('subtitulo', data.get('subtitle', "")),
-            'author': data.get('autor', data.get('author', "")),
-            'publisher': data.get('editorial', data.get('publisher', "")),
-            'year': str(data.get('año', data.get('year', "2026"))),
-        })
-        st.session_state.meta['copyright'] = f"© {st.session_state.meta['year']} {st.session_state.meta['author']}"
+        try:
+            data = json.load(json_up)
+            st.session_state.meta.update({
+                'title': data.get('titulo', data.get('title', st.session_state.meta['title'])),
+                'subtitle': data.get('subtitulo', data.get('subtitle', "")),
+                'author': data.get('autor', data.get('author', st.session_state.meta['author'])),
+                'publisher': data.get('editorial', data.get('publisher', st.session_state.meta['publisher'])),
+                'year': str(data.get('año', data.get('year', "2026"))),
+                'copyright': data.get('copyright', "")
+            })
+            # Si el JSON no trae copyright, lo generamos por defecto
+            if not st.session_state.meta['copyright']:
+                st.session_state.meta['copyright'] = f"© {st.session_state.meta['year']} {st.session_state.meta['author']}. Todos los derechos reservados."
+            st.success("Metadatos cargados")
+        except:
+            st.error("Error al procesar el JSON")
 
+    st.divider()
+    st.header("2. Confirmar Datos")
     m_title = st.text_input("Título", value=st.session_state.meta['title'])
     m_sub = st.text_input("Subtítulo", value=st.session_state.meta['subtitle'])
     m_author = st.text_input("Autor", value=st.session_state.meta['author'])
     m_pub = st.text_input("Editorial", value=st.session_state.meta['publisher'])
-    m_copy = st.text_area("Copyright", value=st.session_state.meta['copyright'])
-    size_mode = st.selectbox("Formato", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
+    # Este es el campo que ahora capturará el mensaje completo
+    m_copy = st.text_area("Texto de Copyright", value=st.session_state.meta['copyright'], height=100)
+    size_mode = st.selectbox("Formato de impresión", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
 
-md_file = st.file_uploader("Manuscrito Markdown", type=["md", "txt"])
+st.header("3. Manuscrito")
+md_file = st.file_uploader("Sube el archivo Markdown (.md)", type=["md", "txt"])
 text_input = md_file.read().decode("utf-8") if md_file else ""
-editor = st.text_area("Contenido", value=text_input, height=300)
+editor = st.text_area("Contenido del Manuscrito", value=text_input, height=300)
 
-if st.button("Generar Libro", use_container_width=True):
+if st.button("🚀 Generar y Descargar Libro", use_container_width=True):
     if editor and m_title:
-        bundle = {'title': m_title, 'subtitle': m_sub, 'author': m_author, 'publisher': m_pub, 'copyright': m_copy}
-        out = run_book_conversion(editor, bundle, size_mode)
-        st.download_button(f"📥 Descargar {m_title}", out, f"{limpiar_nombre(m_title)}.docx")
+        # Empaquetar datos finales desde los inputs de la UI
+        final_meta = {
+            'title': m_title, 
+            'subtitle': m_sub, 
+            'author': m_author, 
+            'publisher': m_pub, 
+            'copyright': m_copy # Aquí se envía el texto completo del área de texto
+        }
+        
+        docx_out = run_book_conversion(editor, final_meta, size_mode)
+        nombre_file = f"{limpiar_nombre(m_title)}.docx"
+        
+        st.success(f"Libro '{nombre_file}' generado.")
+        st.download_button("📥 Descargar Archivo DOCX", docx_out, nombre_file)
     else:
-        st.warning("Título y contenido son obligatorios.")
+        st.warning("Asegúrate de tener un título y contenido en el manuscrito.")
