@@ -23,7 +23,6 @@ def set_mirror_margins(section):
         sectPr.insert(sectPr.index(cols[0]), mirror_margins)
 
 def add_page_number(footer):
-    """Inserta número de página centrado en el footer."""
     paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.clear()
@@ -63,13 +62,14 @@ def add_formatted_text(paragraph, text):
 def setup_styles(doc):
     styles = doc.styles
     
-    # Estilo Normal (Base para el texto y el título según solicitud)
+    # Estilo Normal (Base)
     style_normal = styles['Normal']
     style_normal.font.name = 'Garamond'
     style_normal.font.size = Pt(11)
     style_normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    style_normal.paragraph_format.line_spacing = 1.0  # Espaciado sencillo para la portada
 
-    # Estilo Body Text (Para párrafos del libro)
+    # Estilo Body Text
     if 'Body Text' not in styles: styles.add_style('Body Text', 1)
     body = styles['Body Text']
     body.font.name, body.font.size = 'Garamond', Pt(11)
@@ -77,7 +77,7 @@ def setup_styles(doc):
     body.paragraph_format.line_spacing = 1.15
     body.paragraph_format.first_line_indent = Inches(0.25)
 
-    # Estilos de Títulos (Heading 1 para capítulos, etc.)
+    # Estilos de Títulos
     for i in range(1, 6):
         style_name = f'Heading {i}'
         h = styles[style_name] if style_name in styles else styles.add_style(style_name, 1)
@@ -86,20 +86,14 @@ def setup_styles(doc):
         h.font.color.rgb = RGBColor(0, 0, 0)
         if i == 1:
             h.font.size = Pt(24)
-            h.paragraph_format.space_before = Pt(0)
-            h.paragraph_format.space_after = Pt(36)
             h.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        else:
-            h.font.size = Pt(16 - i)
-            h.paragraph_format.space_before = Pt(18)
-            h.paragraph_format.space_after = Pt(12)
     return doc
 
 def apply_layout(section, size_option, has_number=True):
     if size_option == "Trade Paperback (5.5x8.5)":
         section.page_width, section.page_height = Inches(5.5), Inches(8.5)
-        section.top_margin, section.bottom_margin = Inches(0.75), Inches(0.875)
-        section.left_margin, section.right_margin = Inches(0.875), Inches(0.75)
+        section.top_margin, section.bottom_margin = Inches(0.75), Inches(0.75)
+        section.left_margin, section.right_margin = Inches(0.75), Inches(0.65)
     else:
         section.page_width, section.page_height = Inches(8.27), Inches(11.69)
         section.top_margin, section.bottom_margin = Inches(1), Inches(1)
@@ -121,52 +115,50 @@ def run_book_conversion(md_text, meta, size_option):
     apply_layout(section, size_option, has_number=False)
     section.different_first_page_header_footer = True 
     
-    # Título (Estilo Normal, 36pt, centrado)
-    # Usamos style=None para heredar del estilo base "Normal"
+    # Título (36pt, Normal, Centrado)
     p_title = doc.add_paragraph()
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_title.paragraph_format.space_before = Pt(24)
+    p_title.paragraph_format.space_before = Pt(40)
     run_t = p_title.add_run(meta['title'])
     run_t.font.size = Pt(36)
-    run_t.bold = False # Estilo normal, no negrita a menos que se desee
+    run_t.bold = False 
 
     # Subtítulo
     if meta.get('subtitle'):
         p_sub = doc.add_paragraph()
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run_s = p_sub.add_run(meta['subtitle'])
-        run_s.font.size = Pt(18)
+        run_s.font.size = Pt(16)
         run_s.italic = True
 
-    # Espaciado controlado para asegurar que todo quepa en la pág 1
-    # Usamos espaciado de párrafo en lugar de muchas líneas vacías para mayor estabilidad
+    # Espaciador medio reducido para evitar saltos de página
     p_spacer = doc.add_paragraph()
-    p_spacer.paragraph_format.space_before = Inches(2.5)
+    p_spacer.paragraph_format.space_before = Inches(1.8)
 
     # Autor
     p_author = doc.add_paragraph()
     p_author.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run_a = p_author.add_run(meta['author'])
     run_a.font.name = 'Garamond'
-    run_a.font.size = Pt(20)
+    run_a.font.size = Pt(18)
     run_a.italic = True
 
-    # Editorial al fondo de la página 1
+    # Editorial (Ajuste dinámico al final de la página 1)
     p_spacer_pub = doc.add_paragraph()
-    p_spacer_pub.paragraph_format.space_before = Inches(1.5)
+    p_spacer_pub.paragraph_format.space_before = Inches(1.2)
     
     p_pub = doc.add_paragraph()
     p_pub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run_p = p_pub.add_run(meta['publisher'])
     run_p.font.name = 'Aptos'
-    run_p.font.size = Pt(14)
+    run_p.font.size = Pt(12)
     run_p.bold = True
 
-    # --- PÁGINA 2: COPYRIGHT ---
+    # --- PÁGINA 2: COPYRIGHT (SOLO) ---
     doc.add_page_break()
-    # Forzar que el copyright esté en la parte inferior de la página 2
     p_copy = doc.add_paragraph()
-    p_copy.paragraph_format.space_before = Inches(6.0)
+    # Lo colocamos un poco más arriba para que sea lo único visible
+    p_copy.paragraph_format.space_before = Inches(2.0)
     p_copy.alignment = WD_ALIGN_PARAGRAPH.LEFT
     run_c = p_copy.add_run(meta['copyright'])
     run_c.font.size = Pt(9)
@@ -179,12 +171,11 @@ def run_book_conversion(md_text, meta, size_option):
     run_cont.font.name = 'Aptos'
     run_cont.font.size = Pt(20)
     p_cont.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p_cont.paragraph_format.first_line_indent = 0
     doc.add_paragraph() 
 
     # --- CAPÍTULOS ---
-    is_after_heading = False
     lines = md_text.split('\n')
+    is_after_heading = False
     
     for line in lines:
         clean = line.strip()
@@ -196,7 +187,6 @@ def run_book_conversion(md_text, meta, size_option):
             title_text = header_match.group(2)
             
             if level == 1:
-                # Los capítulos nuevos empiezan en página impar
                 new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
                 apply_layout(new_sect, size_option, has_number=True)
                 p = doc.add_paragraph(style='Heading 1')
@@ -216,18 +206,15 @@ def run_book_conversion(md_text, meta, size_option):
     doc.save(bio)
     return bio.getvalue()
 
+# Resto del código Streamlit (Slugify e Interfaz) igual que el anterior...
 def slugify(text):
     return re.sub(r'[^a-z0-9]', '_', text.lower().replace(' ','_'))
-
-# ==========================================
-# 4. INTERFAZ STREAMLIT
-# ==========================================
 
 st.set_page_config(page_title="Maquetador Editorial Pro", layout="wide")
 st.title("📚 Generador Editorial Profesional")
 
 if 'meta' not in st.session_state:
-    st.session_state.meta = {'title': "Título del Libro", 'subtitle': "Subtítulo de la obra", 'author': "Nombre del Autor", 'publisher': "Nombre de la Editorial", 'year': "2026", 'copyright': ""}
+    st.session_state.meta = {'title': "Título del Libro", 'subtitle': "Subtítulo", 'author': "Nombre del Autor", 'publisher': "Nombre de la Editorial", 'year': "2026", 'copyright': ""}
 
 with st.sidebar:
     st.header("⚙️ Configuración")
@@ -274,5 +261,3 @@ if st.button("🚀 Generar y Descargar Documento", use_container_width=True):
             file_name=f"{slugify(m_title)}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-    else:
-        st.warning("Por favor, asegúrate de tener un título y contenido en el manuscrito.")
