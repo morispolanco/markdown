@@ -38,6 +38,7 @@ def add_page_number(footer):
     run3._r.append(fldChar2)
 
 def add_formatted_text(paragraph, text):
+    """Maneja negritas y cursivas básicas de Markdown."""
     parts = re.split(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)', text)
     for part in parts:
         if not part: continue
@@ -88,8 +89,8 @@ def setup_styles(doc):
         if i == 1:
             h.font.size = Pt(24)
             h.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            h.paragraph_format.space_before = Pt(24)
-            h.paragraph_format.space_after = Pt(48)
+            h.paragraph_format.space_before = Pt(24)  # 24pt antes
+            h.paragraph_format.space_after = Pt(48)   # 48pt después
             h.paragraph_format.keep_with_next = True
         else:
             h.font.size = Pt(16 - i)
@@ -166,8 +167,9 @@ def run_book_conversion(md_text, meta, size_option):
     run_c.font.size = Pt(9)
     run_c.font.name = 'Garamond'
     
-    # --- PÁGINAS DE CONTENIDO ---
+    # --- PÁGINA 3 EN ADELANTE: CAPÍTULOS ---
     doc.add_page_break()
+    
     lines = md_text.split('\n')
     is_after_heading = False
     
@@ -184,16 +186,22 @@ def run_book_conversion(md_text, meta, size_option):
                 new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
                 apply_layout(new_sect, size_option, has_number=True)
                 p = doc.add_paragraph(style='Heading 1')
+                
+                # LÓGICA DE SALTO DE LÍNEA MANUAL EN DOS PUNTOS
                 if ":" in title_text:
                     parts = title_text.split(":", 1)
+                    # Primera parte con los dos puntos
                     add_formatted_text(p, parts[0].strip() + ":")
+                    # Salto de línea manual (soft break)
                     p.add_run().add_break()
+                    # Segunda parte (el resto del título)
                     add_formatted_text(p, parts[1].strip())
                 else:
                     add_formatted_text(p, title_text)
             else:
                 p = doc.add_paragraph(style=f'Heading {min(level, 5)}')
                 add_formatted_text(p, title_text)
+            
             is_after_heading = True
         else:
             p = doc.add_paragraph(style='Body Text')
@@ -201,18 +209,6 @@ def run_book_conversion(md_text, meta, size_option):
                 p.paragraph_format.first_line_indent = 0
                 is_after_heading = False
             add_formatted_text(p, clean)
-
-    # --- ÚLTIMA PÁGINA: BIOGRAFÍA DEL AUTOR ---
-    if meta.get('author_bio'):
-        # Forzar inicio en página nueva
-        doc.add_page_break()
-        # Opcionalmente, puedes querer que empiece en página impar como los capítulos:
-        # doc.add_section(WD_SECTION_START.ODD_PAGE)
-        
-        p_bio_title = doc.add_paragraph("Biografía del Autor", style='Heading 1')
-        p_bio_content = doc.add_paragraph(style='Body Text')
-        p_bio_content.paragraph_format.first_line_indent = 0
-        add_formatted_text(p_bio_content, meta['author_bio'])
 
     bio = BytesIO()
     doc.save(bio)
@@ -228,17 +224,8 @@ def slugify(text):
 st.set_page_config(page_title="Maquetador Editorial Pro", layout="wide")
 st.title("📚 Generador Editorial")
 
-# Inicialización de metadatos en sesión
 if 'meta' not in st.session_state:
-    st.session_state.meta = {
-        'title': "Título", 
-        'subtitle': "", 
-        'author': "Autor", 
-        'publisher': "Editorial", 
-        'year': "2026", 
-        'copyright': "",
-        'author_bio': "" # Espacio para la biografía
-    }
+    st.session_state.meta = {'title': "Título", 'subtitle': "", 'author': "Autor", 'publisher': "Editorial", 'year': "2026", 'copyright': ""}
 
 with st.sidebar:
     st.header("⚙️ Configuración")
@@ -252,9 +239,10 @@ with st.sidebar:
                 'author': data.get('autor', data.get('author', st.session_state.meta['author'])),
                 'publisher': data.get('editorial', data.get('publisher', st.session_state.meta['publisher'])),
                 'year': str(data.get('año', data.get('year', "2026"))),
-                'copyright': data.get('copyright', ""),
-                'author_bio': data.get('biografia', data.get('author_bio', ""))
+                'copyright': data.get('copyright', "")
             })
+            if not st.session_state.meta['copyright']:
+                st.session_state.meta['copyright'] = f"© {st.session_state.meta['year']} {st.session_state.meta['author']}."
             st.success("JSON cargado")
         except:
             st.error("Error en JSON")
@@ -264,11 +252,7 @@ with st.sidebar:
     m_sub = st.text_input("Subtítulo", value=st.session_state.meta['subtitle'])
     m_author = st.text_input("Autor", value=st.session_state.meta['author'])
     m_pub = st.text_input("Editorial", value=st.session_state.meta['publisher'])
-    m_copy = st.text_area("Copyright", value=st.session_state.meta['copyright'], height=80)
-    
-    # NUEVO CAMPO PARA BIOGRAFÍA
-    m_bio = st.text_area("Biografía del autor", value=st.session_state.meta['author_bio'], height=150, help="Aparecerá en la última página del libro.")
-    
+    m_copy = st.text_area("Copyright", value=st.session_state.meta['copyright'], height=100)
     size_mode = st.selectbox("Formato", ["Trade Paperback (5.5x8.5)", "Estándar A4"])
 
 md_file = st.file_uploader("Manuscrito (.md)", type=["md", "txt"])
@@ -277,15 +261,6 @@ editor = st.text_area("Contenido", value=text_input, height=300)
 
 if st.button("🚀 Generar Libro", use_container_width=True):
     if editor and m_title:
-        bundle = {
-            'title': m_title, 
-            'subtitle': m_sub, 
-            'author': m_author, 
-            'publisher': m_pub, 
-            'copyright': m_copy,
-            'author_bio': m_bio # Pasar biografía al motor
-        }
+        bundle = {'title': m_title, 'subtitle': m_sub, 'author': m_author, 'publisher': m_pub, 'copyright': m_copy}
         docx_bytes = run_book_conversion(editor, bundle, size_mode)
         st.download_button(f"📥 Guardar {m_title}.docx", docx_bytes, f"{slugify(m_title)}.docx")
-    else:
-        st.warning("Faltan datos obligatorios.")
