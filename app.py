@@ -14,16 +14,15 @@ from docx.oxml.ns import qn
 # ==========================================
 
 def set_mirror_margins(section):
-    """Activa los márgenes simétricos en el XML del documento para impresión."""
+    """Activa los márgenes simétricos en el XML del documento."""
     sectPr = section._sectPr
     cols = sectPr.xpath('./w:cols')
     if cols:
         mirror_margins = OxmlElement('w:mirrorMargins')
         sectPr.insert(sectPr.index(cols[0]), mirror_margins)
 
-def add_page_number(footer):
-    """Inserta un campo de número de página centrado en el pie de página."""
-    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+def _insert_page_number_logic(paragraph):
+    """Inserta el código XML necesario para mostrar el número de página."""
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.clear()
     
@@ -42,6 +41,23 @@ def add_page_number(footer):
     fldChar2 = OxmlElement('w:fldChar')
     fldChar2.set(qn('w:fldCharType'), 'end')
     run3._r.append(fldChar2)
+
+def add_page_numbers_to_section(section):
+    """
+    Añade números de página a pares e impares, 
+    omitiendo la primera página de la sección.
+    """
+    # Footer Primario (Páginas Impares > 1)
+    footer_odd = section.footer
+    p_odd = footer_odd.paragraphs[0] if footer_odd.paragraphs else footer_odd.add_paragraph()
+    _insert_page_number_logic(p_odd)
+
+    # Footer de Páginas Pares
+    footer_even = section.even_page_footer
+    p_even = footer_even.paragraphs[0] if footer_even.paragraphs else footer_even.add_paragraph()
+    _insert_page_number_logic(p_even)
+    
+    # IMPORTANTE: No tocamos section.first_page_footer para que quede vacío.
 
 def setup_headers(section, author, title):
     """Configura encabezados: Autor en pares, Título en impares. Times New Roman 9pt Versalita."""
@@ -131,7 +147,7 @@ def apply_layout(section, size_option, meta=None):
         section.page_width, section.page_height = Inches(5.25), Inches(8.0)
         section.top_margin = Inches(0.75)
         section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.75)
+        section.left_margin = Inches(0.75) # Lomo
         section.right_margin = Inches(0.5)
     else:
         section.page_width, section.page_height = Inches(5.5), Inches(8.5)
@@ -139,6 +155,8 @@ def apply_layout(section, size_option, meta=None):
         section.left_margin, section.right_margin = Inches(0.75), Inches(0.6)
     
     set_mirror_margins(section)
+    section.different_first_page_header_footer = True # Crucial para páginas de inicio limpias
+    
     if meta:
         setup_headers(section, meta['author'], meta['title'])
 
@@ -154,7 +172,6 @@ def run_book_conversion(md_text, meta, size_option):
     # Portada
     section = doc.sections[0]
     apply_layout(section, size_option)
-    section.different_first_page_header_footer = True 
     
     p_title = doc.add_paragraph()
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -162,13 +179,6 @@ def run_book_conversion(md_text, meta, size_option):
     run_t = p_title.add_run(meta['title'].upper())
     run_t.font.size = Pt(28)
     run_t.bold = True
-
-    if meta.get('subtitle'):
-        p_sub = doc.add_paragraph()
-        p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run_s = p_sub.add_run(meta['subtitle'])
-        run_s.font.size = Pt(14)
-        run_s.italic = True
 
     p_author = doc.add_paragraph()
     p_author.paragraph_format.space_before = Inches(2.0)
@@ -208,8 +218,10 @@ def run_book_conversion(md_text, meta, size_option):
             if level == 1:
                 new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
                 apply_layout(new_sect, size_option, meta)
-                add_page_number(new_sect.footer)
-                new_sect.different_first_page_header_footer = True 
+                
+                # Añadir números de página a pares e impares, pero no a la primera página del capítulo
+                add_page_numbers_to_section(new_sect)
+                
                 p = doc.add_paragraph(style='Heading 1')
                 add_formatted_text(p, title_text.upper())
             else:
@@ -232,8 +244,6 @@ def run_book_conversion(md_text, meta, size_option):
 
 st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
 
-# --- CORRECCIÓN DE KEYERROR ---
-# Definimos valores por defecto
 defaults = {
     'title': "Mi Gran Novela",
     'author': "Nombre del Autor",
@@ -244,7 +254,6 @@ defaults = {
     'manuscript': ""
 }
 
-# Inicializamos o actualizamos el diccionario para asegurar que todas las llaves existan
 if 'book_data' not in st.session_state:
     st.session_state.book_data = defaults
 else:
@@ -255,65 +264,42 @@ else:
 st.title("📖 Maquetador Editorial Profesional")
 
 with st.sidebar:
-    st.header("📂 Importación de Archivos")
-    
-    # 1. JSON
-    uploaded_json = st.file_uploader("1. Cargar ficha (JSON)", type=["json"])
-    if uploaded_json:
+    st.header("📂 Importación")
+    up_json = st.file_uploader("1. Ficha JSON", type=["json"])
+    if up_json:
         try:
-            data = json.load(uploaded_json)
-            mapping = {
-                'titulo': 'title', 'title': 'title',
-                'autor': 'author', 'author': 'author',
-                'año': 'year', 'year': 'year',
-                'subtitulo': 'subtitle', 'subtitle': 'subtitle',
-                'isbn': 'isbn',
-                'dedicatoria': 'dedication', 'dedication': 'dedication'
-            }
-            for key, val in data.items():
-                if key.lower() in mapping:
-                    st.session_state.book_data[mapping[key.lower()]] = str(val)
-            st.success("¡Metadatos actualizados!")
-        except:
-            st.error("Error en JSON.")
+            data = json.load(up_json)
+            mapping = {'titulo': 'title', 'title': 'title', 'autor': 'author', 'author': 'author', 'año': 'year', 'year': 'year', 'isbn': 'isbn', 'dedicatoria': 'dedication'}
+            for k, v in data.items():
+                if k.lower() in mapping: st.session_state.book_data[mapping[k.lower()]] = str(v)
+            st.success("JSON cargado")
+        except: st.error("Error JSON")
 
-    # 2. Markdown
-    uploaded_md = st.file_uploader("2. Cargar Manuscrito (.md, .txt)", type=["md", "txt"])
-    if uploaded_md:
+    up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
+    if up_md:
         try:
-            content = uploaded_md.read().decode("utf-8")
+            content = up_md.read().decode("utf-8")
             st.session_state.book_data['manuscript'] = content
-            st.success("¡Manuscrito cargado!")
-        except:
-            st.error("Error al leer el archivo.")
+            st.success("Texto cargado")
+        except: st.error("Error al leer texto")
 
-with st.expander("📝 Formulario de Metadatos", expanded=True):
+with st.expander("📝 Metadatos", expanded=False):
     col1, col2 = st.columns(2)
     with col1:
-        m_title = st.text_input("Título del Libro", value=st.session_state.book_data['title'])
-        m_author = st.text_input("Nombre del Autor", value=st.session_state.book_data['author'])
+        m_title = st.text_input("Título", value=st.session_state.book_data['title'])
+        m_author = st.text_input("Autor", value=st.session_state.book_data['author'])
     with col2:
         m_year = st.text_input("Año", value=st.session_state.book_data['year'])
         size_mode = st.selectbox("Formato", ["Pocket (5.25 x 8 in)", "Trade (5.5 x 8.5 in)"])
-
-    m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
     m_isbn = st.text_input("ISBN", value=st.session_state.book_data['isbn'])
     m_dedication = st.text_area("Dedicatoria", value=st.session_state.book_data['dedication'])
 
-st.subheader("🖋️ Editor del Manuscrito")
-editor_content = st.text_area(
-    "Contenido", 
-    value=st.session_state.book_data.get('manuscript', ""), 
-    height=400, 
-    placeholder="# CAPÍTULO 1\nContenido..."
-)
+st.subheader("🖋️ Manuscrito")
+editor_content = st.text_area("Contenido", value=st.session_state.book_data.get('manuscript', ""), height=350)
 
-if st.button("🚀 Generar Libro Profesional", use_container_width=True):
+if st.button("🚀 Generar Libro", use_container_width=True):
     if editor_content and m_title:
-        bundle = {
-            'title': m_title, 'subtitle': m_sub, 'author': m_author, 
-            'year': m_year, 'isbn': m_isbn, 'dedication': m_dedication
-        }
+        bundle = {'title': m_title, 'author': m_author, 'year': m_year, 'isbn': m_isbn, 'dedication': m_dedication}
         docx_bytes = run_book_conversion(editor_content, bundle, size_mode)
         st.success("¡Libro generado!")
         st.download_button(f"📥 Descargar {m_title}.docx", docx_bytes, f"{m_title.replace(' ', '_')}.docx")
