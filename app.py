@@ -223,19 +223,19 @@ def run_book_conversion(md_text, meta, size_option):
     run_c = p_copy.add_run(copyright_text)
     run_c.font.size = Pt(9)
     
-    # --- PÁGINA 3: SOBRE EL AUTOR (Nueva Sección) ---
+    # --- SECCIÓN: SOBRE EL AUTOR (Antes del Índice) ---
     section_bio = doc.add_section(WD_SECTION_START.ODD_PAGE)
     apply_layout(section_bio, size_option)
     section_bio.different_first_page_header_footer = True
     
     p_bio_title = doc.add_paragraph(style='Heading 1')
-    add_formatted_text(p_bio_title, "SOBRE EL AUTOR")
+    add_formatted_text(p_bio_title, "Sobre el autor")
     
     p_bio_content = doc.add_paragraph(style='First Paragraph')
     bio_text = meta.get('about_author', "Biografía no proporcionada.")
     add_formatted_text(p_bio_content, bio_text)
 
-    # --- PÁGINA 5: ÍNDICE (Nueva Sección) ---
+    # --- SECCIÓN: ÍNDICE ---
     section_index = doc.add_section(WD_SECTION_START.ODD_PAGE)
     apply_layout(section_index, size_option)
     section_index.different_first_page_header_footer = True
@@ -276,9 +276,9 @@ def run_book_conversion(md_text, meta, size_option):
             add_formatted_text(p, clean)
             is_after_heading = False
 
-    bio = BytesIO()
-    doc.save(bio)
-    return bio.getvalue()
+    bio_stream = BytesIO()
+    doc.save(bio_stream)
+    return bio_stream.getvalue()
 
 # ==========================================
 # 4. INTERFAZ STREAMLIT
@@ -288,10 +288,10 @@ st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
 
 defaults = {
     'title': "Mi Gran Novela",
+    'subtitle': "",
     'author': "Nombre del Autor",
     'publisher': "Editorial Desconocida",
     'year': "2025",
-    'subtitle': "",
     'isbn': "",
     'copyright': "",
     'about_author': "Biografía del autor...",
@@ -301,6 +301,7 @@ defaults = {
 if 'book_data' not in st.session_state:
     st.session_state.book_data = defaults
 else:
+    # Asegurar que todas las llaves nuevas existan en sesiones antiguas
     for key, value in defaults.items():
         if key not in st.session_state.book_data:
             st.session_state.book_data[key] = value
@@ -321,13 +322,20 @@ with st.sidebar:
                 'año': 'year', 'year': 'year', 
                 'isbn': 'isbn', 
                 'copyright': 'copyright',
-                'biografia': 'about_author', 'bio': 'about_author', 'sobre_autor': 'about_author', 'about_author': 'about_author'
+                'biografia': 'about_author', 'biografía': 'about_author', 
+                'bio': 'about_author', 'sobre_autor': 'about_author', 
+                'about_author': 'about_author'
             }
+            # Actualizar el estado de sesión directamente
             for k, v in data.items():
-                if k.lower() in mapping: 
-                    st.session_state.book_data[mapping[k.lower()]] = str(v)
-            st.success("JSON cargado con éxito")
-        except: st.error("Error al procesar el archivo JSON.")
+                low_k = k.lower()
+                if low_k in mapping: 
+                    st.session_state.book_data[mapping[low_k]] = str(v)
+            
+            st.success("JSON cargado")
+            st.rerun() # Fuerza el refresco para que los widgets muestren los datos cargados
+        except: 
+            st.error("Error al procesar el archivo JSON.")
 
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
@@ -350,7 +358,7 @@ with st.expander("📝 Metadatos", expanded=True):
     
     m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
     m_copyright = st.text_area("Copyright / Créditos Legales", value=st.session_state.book_data['copyright'], height=100)
-    m_about = st.text_area("Sobre el autor", value=st.session_state.book_data['about_author'], height=150)
+    m_about = st.text_area("Sobre el autor (Biografía)", value=st.session_state.book_data['about_author'], height=150)
 
 st.subheader("🖋️ Manuscrito")
 editor_content = st.text_area("Contenido", value=st.session_state.book_data.get('manuscript', ""), height=350)
