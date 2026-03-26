@@ -54,7 +54,6 @@ def add_page_numbers_to_section(section):
 
 def setup_headers(section, author, title):
     """Configura encabezados: Autor en pares, Título en impares. Times New Roman 9pt Versalita."""
-    # Encabezado páginas IMPARES -> TÍTULO DEL LIBRO
     header_odd = section.header
     p_odd = header_odd.paragraphs[0] if header_odd.paragraphs else header_odd.add_paragraph()
     p_odd.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -64,7 +63,6 @@ def setup_headers(section, author, title):
     run_odd.font.size = Pt(9)
     run_odd.font.small_caps = True
 
-    # Encabezado páginas PARES -> NOMBRE DEL AUTOR
     header_even = section.even_page_header
     p_even = header_even.paragraphs[0] if header_even.paragraphs else header_even.add_paragraph()
     p_even.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -173,7 +171,7 @@ def run_book_conversion(md_text, meta, size_option):
     setup_styles(doc)
     doc.settings.odd_and_even_pages_header_footer = True
     
-    # Portada (Página 1)
+    # --- PÁGINA 1: PORTADA ---
     section = doc.sections[0]
     apply_layout(section, size_option)
     
@@ -198,7 +196,6 @@ def run_book_conversion(md_text, meta, size_option):
     run_a = p_author.add_run(meta['author'])
     run_a.font.size = Pt(16)
 
-    # Editorial en portada
     if meta.get('publisher'):
         p_pub = doc.add_paragraph()
         p_pub.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -207,7 +204,7 @@ def run_book_conversion(md_text, meta, size_option):
         run_p.font.size = Pt(12)
         run_p.italic = True
 
-    # Copyright
+    # --- PÁGINA 2: COPYRIGHT ---
     doc.add_page_break()
     p_copy = doc.add_paragraph()
     p_copy.paragraph_format.space_before = Inches(4.5)
@@ -226,7 +223,20 @@ def run_book_conversion(md_text, meta, size_option):
     run_c = p_copy.add_run(copyright_text)
     run_c.font.size = Pt(9)
     
-    # Dedicatoria
+    # --- PÁGINA 3: ÍNDICE (Nueva Sección) ---
+    # Reservada y en blanco como se solicitó
+    section_index = doc.add_section(WD_SECTION_START.ODD_PAGE)
+    apply_layout(section_index, size_option)
+    section_index.different_first_page_header_footer = True
+    
+    p_idx = doc.add_paragraph()
+    p_idx.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_idx.paragraph_format.space_before = Pt(72)
+    run_idx = p_idx.add_run("ÍNDICE") # Marcador de posición
+    run_idx.font.size = Pt(18)
+    run_idx.bold = True
+    
+    # --- PÁGINA 4: DEDICATORIA ---
     doc.add_page_break()
     p_ded = doc.add_paragraph()
     p_ded.paragraph_format.space_before = Inches(2.0)
@@ -234,7 +244,7 @@ def run_book_conversion(md_text, meta, size_option):
     run_d = p_ded.add_run(meta.get('dedication', ""))
     run_d.italic = True
 
-    # Cuerpo
+    # --- CUERPO ---
     doc.add_page_break()
     lines = md_text.split('\n')
     is_after_heading = False
@@ -301,7 +311,6 @@ with st.sidebar:
     if up_json:
         try:
             data = json.load(up_json)
-            # Mapeo actualizado para incluir subtítulo
             mapping = {
                 'titulo': 'title', 'title': 'title', 
                 'subtitulo': 'subtitle', 'subtitle': 'subtitle',
@@ -315,8 +324,8 @@ with st.sidebar:
             for k, v in data.items():
                 if k.lower() in mapping: 
                     st.session_state.book_data[mapping[k.lower()]] = str(v)
-            st.success("JSON cargado con éxito")
-        except: st.error("Error al procesar el archivo JSON.")
+            st.success("JSON cargado")
+        except: st.error("Error JSON")
 
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
@@ -338,10 +347,7 @@ with st.expander("📝 Metadatos", expanded=True):
         m_isbn = st.text_input("ISBN", value=st.session_state.book_data['isbn'])
     
     m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
-    m_copyright = st.text_area("Copyright / Créditos Legales", 
-                               value=st.session_state.book_data['copyright'], 
-                               placeholder="Si se deja vacío, se generará automáticamente.",
-                               height=100)
+    m_copyright = st.text_area("Copyright / Créditos Legales", value=st.session_state.book_data['copyright'], height=100)
     m_dedication = st.text_area("Dedicatoria", value=st.session_state.book_data['dedication'])
 
 st.subheader("🖋️ Manuscrito")
@@ -350,14 +356,9 @@ editor_content = st.text_area("Contenido", value=st.session_state.book_data.get(
 if st.button("🚀 Generar Libro", use_container_width=True):
     if editor_content and m_title:
         bundle = {
-            'title': m_title, 
-            'subtitle': m_sub,
-            'author': m_author, 
-            'publisher': m_pub,
-            'year': m_year, 
-            'isbn': m_isbn, 
-            'copyright': m_copyright,
-            'dedication': m_dedication
+            'title': m_title, 'subtitle': m_sub, 'author': m_author, 
+            'publisher': m_pub, 'year': m_year, 'isbn': m_isbn, 
+            'copyright': m_copyright, 'dedication': m_dedication
         }
         docx_bytes = run_book_conversion(editor_content, bundle, size_mode)
         st.success("¡Libro generado!")
