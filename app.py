@@ -223,7 +223,19 @@ def run_book_conversion(md_text, meta, size_option):
     run_c = p_copy.add_run(copyright_text)
     run_c.font.size = Pt(9)
     
-    # --- PÁGINA 3: ÍNDICE (Nueva Sección) ---
+    # --- PÁGINA 3: SOBRE EL AUTOR (Nueva Sección) ---
+    section_bio = doc.add_section(WD_SECTION_START.ODD_PAGE)
+    apply_layout(section_bio, size_option)
+    section_bio.different_first_page_header_footer = True
+    
+    p_bio_title = doc.add_paragraph(style='Heading 1')
+    add_formatted_text(p_bio_title, "SOBRE EL AUTOR")
+    
+    p_bio_content = doc.add_paragraph(style='First Paragraph')
+    bio_text = meta.get('about_author', "Biografía no proporcionada.")
+    add_formatted_text(p_bio_content, bio_text)
+
+    # --- PÁGINA 5: ÍNDICE (Nueva Sección) ---
     section_index = doc.add_section(WD_SECTION_START.ODD_PAGE)
     apply_layout(section_index, size_option)
     section_index.different_first_page_header_footer = True
@@ -235,9 +247,6 @@ def run_book_conversion(md_text, meta, size_option):
     run_idx.font.size = Pt(18)
     run_idx.bold = True
     
-    # La dedicatoria ha sido eliminada por solicitud del usuario.
-    # El cuerpo del texto iniciará inmediatamente después del índice.
-
     # --- CUERPO ---
     lines = md_text.split('\n')
     is_after_heading = False
@@ -285,6 +294,7 @@ defaults = {
     'subtitle': "",
     'isbn': "",
     'copyright': "",
+    'about_author': "Biografía del autor...",
     'manuscript': ""
 }
 
@@ -310,13 +320,14 @@ with st.sidebar:
                 'editorial': 'publisher', 'publisher': 'publisher',
                 'año': 'year', 'year': 'year', 
                 'isbn': 'isbn', 
-                'copyright': 'copyright'
+                'copyright': 'copyright',
+                'biografia': 'about_author', 'bio': 'about_author', 'sobre_autor': 'about_author', 'about_author': 'about_author'
             }
             for k, v in data.items():
                 if k.lower() in mapping: 
                     st.session_state.book_data[mapping[k.lower()]] = str(v)
-            st.success("JSON cargado")
-        except: st.error("Error JSON")
+            st.success("JSON cargado con éxito")
+        except: st.error("Error al procesar el archivo JSON.")
 
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
@@ -339,6 +350,7 @@ with st.expander("📝 Metadatos", expanded=True):
     
     m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
     m_copyright = st.text_area("Copyright / Créditos Legales", value=st.session_state.book_data['copyright'], height=100)
+    m_about = st.text_area("Sobre el autor", value=st.session_state.book_data['about_author'], height=150)
 
 st.subheader("🖋️ Manuscrito")
 editor_content = st.text_area("Contenido", value=st.session_state.book_data.get('manuscript', ""), height=350)
@@ -348,7 +360,7 @@ if st.button("🚀 Generar Libro", use_container_width=True):
         bundle = {
             'title': m_title, 'subtitle': m_sub, 'author': m_author, 
             'publisher': m_pub, 'year': m_year, 'isbn': m_isbn, 
-            'copyright': m_copyright
+            'copyright': m_copyright, 'about_author': m_about
         }
         docx_bytes = run_book_conversion(editor_content, bundle, size_mode)
         st.success("¡Libro generado!")
