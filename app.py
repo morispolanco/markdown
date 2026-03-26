@@ -199,19 +199,23 @@ def run_book_conversion(md_text, meta, size_option):
     run_c = p_copy.add_run(copy_val)
     run_c.font.size = Pt(9)
     
-    # --- SOBRE EL AUTOR ---
-    section_bio = doc.add_section(WD_SECTION_START.ODD_PAGE)
-    apply_layout(section_bio, size_option)
-    doc.add_paragraph("Sobre el autor", style='Heading 1')
-    add_formatted_text(doc.add_paragraph(style='First Paragraph'), meta.get('about_author', "Biografía no disponible."))
-
-    # --- ÍNDICE ---
+    # --- PÁGINA 3: ÍNDICE ---
     section_idx = doc.add_section(WD_SECTION_START.ODD_PAGE)
     apply_layout(section_idx, size_option)
+    section_idx.different_first_page_header_footer = True
     p_idx = doc.add_paragraph()
     p_idx.alignment, p_idx.paragraph_format.space_before = WD_ALIGN_PARAGRAPH.CENTER, Pt(72)
     run_idx = p_idx.add_run("ÍNDICE")
     run_idx.font.size, run_idx.bold = Pt(18), True
+
+    # --- PÁGINA 4+: DEDICATORIA ---
+    if meta.get('dedication'):
+        doc.add_page_break()
+        p_ded = doc.add_paragraph()
+        p_ded.paragraph_format.space_before = Inches(2.0)
+        p_ded.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_d = p_ded.add_run(meta['dedication'])
+        run_d.italic = True
     
     # --- CUERPO ---
     lines = md_text.split('\n')
@@ -247,7 +251,7 @@ def run_book_conversion(md_text, meta, size_option):
 
 st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
 
-# Estructura de datos centralizada
+# Estructura de datos centralizada (Versión Restaurada)
 initial_vals = {
     'title': "Mi Gran Novela",
     'subtitle': "",
@@ -256,11 +260,10 @@ initial_vals = {
     'year': "2025",
     'isbn': "",
     'copyright': "",
-    'about_author': "Biografía...",
+    'dedication': "Para aquellos que creen en la magia de las palabras.",
     'manuscript': ""
 }
 
-# Inicialización segura
 for key, val in initial_vals.items():
     if key not in st.session_state:
         st.session_state[key] = val
@@ -270,14 +273,12 @@ st.title("📖 Maquetador Editorial Profesional")
 with st.sidebar:
     st.header("📂 Importación")
     
-    # Carga de JSON con refresco forzado
     up_json = st.file_uploader("1. Ficha JSON", type=["json"])
     if up_json:
         try:
             raw_json = up_json.getvalue().decode("utf-8-sig")
             data = json.loads(raw_json)
             
-            # Mapeo exhaustivo de claves
             mapping = {
                 'titulo': 'title', 'title': 'title', 
                 'subtitulo': 'subtitle', 'subtitle': 'subtitle',
@@ -285,34 +286,28 @@ with st.sidebar:
                 'editorial': 'publisher', 'publisher': 'publisher',
                 'año': 'year', 'year': 'year', 
                 'isbn': 'isbn', 'copyright': 'copyright',
-                'biografia': 'about_author', 'bio': 'about_author', 
-                'about_author': 'about_author', 'authorbio': 'about_author',
-                'author_bio': 'about_author'
+                'dedicatoria': 'dedication', 'dedication': 'dedication'
             }
             
-            # Actualización de memoria
             for k, v in data.items():
                 kl = k.lower().strip()
                 if kl in mapping:
                     st.session_state[mapping[kl]] = str(v) if v is not None else ""
             
             st.success("¡Metadatos cargados con éxito!")
-            st.rerun() # Sincronización inmediata de widgets
+            st.rerun()
         except Exception as e:
             st.error(f"Error al cargar JSON: {e}")
 
-    # Carga de Manuscrito con refresco forzado
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
         try:
-            content = up_md.getvalue().decode("utf-8")
-            st.session_state.manuscript = content
-            st.success("¡Texto del manuscrito cargado!")
-            st.rerun() # Sincronización inmediata
+            st.session_state.manuscript = up_md.getvalue().decode("utf-8")
+            st.success("¡Texto cargado!")
+            st.rerun()
         except Exception as e:
             st.error(f"Error al leer manuscrito: {e}")
 
-# Los widgets ahora usan 'key' para vinculación bidireccional perfecta
 with st.expander("📝 Metadatos", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -326,7 +321,7 @@ with st.expander("📝 Metadatos", expanded=True):
     
     st.text_input("Subtítulo", key="subtitle")
     st.text_area("Copyright / Créditos Legales", key="copyright", height=80)
-    st.text_area("Sobre el autor (Biografía)", key="about_author", height=120)
+    st.text_area("Dedicatoria", key="dedication", height=100)
 
 st.subheader("🖋️ Editor del Manuscrito")
 st.text_area("Contenido", key="manuscript", height=300)
@@ -335,7 +330,7 @@ if st.button("🚀 Generar Libro", use_container_width=True):
     if st.session_state.manuscript and st.session_state.title:
         bundle = { k: st.session_state[k] for k in initial_vals.keys() }
         docx = run_book_conversion(st.session_state.manuscript, bundle, size_mode)
-        st.success("¡Libro generado correctamente!")
+        st.success("¡Libro generado!")
         st.download_button(
             label=f"📥 Descargar {st.session_state.title}.docx",
             data=docx,
@@ -343,4 +338,4 @@ if st.button("🚀 Generar Libro", use_container_width=True):
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
     else:
-        st.error("Faltan datos obligatorios: Título o Manuscrito.")
+        st.error("Faltan datos obligatorios (Título o Manuscrito).")
