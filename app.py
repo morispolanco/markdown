@@ -117,11 +117,10 @@ def apply_layout(section, size_option):
     """Aplica las dimensiones de página y márgenes según la plantilla."""
     if size_option == "Pocket (5.25 x 8 in)":
         section.page_width, section.page_height = Inches(5.25), Inches(8.0)
-        # Márgenes profesionales: Gutter (interior) más ancho
         section.top_margin = Inches(0.75)
         section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.75)  # Interior (asumiendo mirror)
-        section.right_margin = Inches(0.5)  # Exterior
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.5)
     else:
         section.page_width, section.page_height = Inches(5.5), Inches(8.5)
         section.top_margin, section.bottom_margin = Inches(0.75), Inches(0.75)
@@ -191,28 +190,22 @@ def run_book_conversion(md_text, meta, size_option):
         clean = line.strip()
         if not clean: continue
         
-        # Detección de encabezados (Markdown #)
         header_match = re.match(r'^(#+)\s*(.*)$', clean)
         if header_match:
             level = len(header_match.group(1))
             title_text = header_match.group(2)
             
-            # Los Capítulos principales (Nivel 1) inician en página impar
             if level == 1:
                 new_sect = doc.add_section(WD_SECTION_START.ODD_PAGE)
                 apply_layout(new_sect, size_option)
                 add_page_number(new_sect.footer)
-                
                 p = doc.add_paragraph(style='Heading 1')
-                # Formato especial: "1 CHAPTER NAME"
                 add_formatted_text(p, title_text.upper())
             else:
                 p = doc.add_paragraph(style=f'Heading {min(level, 5)}')
                 add_formatted_text(p, title_text)
-            
             is_after_heading = True
         else:
-            # Lógica de párrafos: el primero después de un título no tiene sangría
             style = 'First Paragraph' if is_after_heading else 'Body Text'
             p = doc.add_paragraph(style=style)
             add_formatted_text(p, clean)
@@ -233,27 +226,64 @@ def run_book_conversion(md_text, meta, size_option):
 # 4. INTERFAZ STREAMLIT
 # ==========================================
 
-st.set_page_config(page_title="Maquetador Editorial 5.25x8", layout="centered")
+st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
+
+# Inicializar estado para los metadatos
+if 'book_data' not in st.session_state:
+    st.session_state.book_data = {
+        'title': "Mi Gran Novela",
+        'author': "Nombre del Autor",
+        'year': "2025",
+        'subtitle': "",
+        'isbn': "",
+        'dedication': "Para aquellos que creen en la magia de las palabras.",
+        'about_author': "Escribe aquí una breve biografía."
+    }
 
 st.title("📖 Maquetador Editorial Profesional")
-st.info("Esta herramienta genera un archivo .docx optimizado para impresión en formato 5.25 x 8 pulgadas, siguiendo la estructura del manuscrito adjunto.")
 
-with st.expander("📝 Datos del Libro", expanded=True):
+# Sidebar para carga de JSON
+with st.sidebar:
+    st.header("📂 Importar Datos")
+    uploaded_json = st.file_uploader("Cargar ficha técnica (JSON)", type=["json"])
+    
+    if uploaded_json is not None:
+        try:
+            data = json.load(uploaded_json)
+            # Actualizar estado con llaves en español o inglés
+            mapping = {
+                'titulo': 'title', 'title': 'title',
+                'autor': 'author', 'author': 'author',
+                'año': 'year', 'year': 'year',
+                'subtitulo': 'subtitle', 'subtitle': 'subtitle',
+                'isbn': 'isbn',
+                'dedicatoria': 'dedication', 'dedication': 'dedication',
+                'sobre_autor': 'about_author', 'about_author': 'about_author'
+            }
+            for key, val in data.items():
+                if key.lower() in mapping:
+                    st.session_state.book_data[mapping[key.lower()]] = str(val)
+            st.success("¡Datos cargados del JSON!")
+        except Exception as e:
+            st.error(f"Error al leer el JSON: {e}")
+
+st.info("Esta herramienta genera un archivo .docx optimizado para impresión en formato 5.25 x 8 pulgadas.")
+
+with st.expander("📝 Formulario de Metadatos", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        m_title = st.text_input("Título del Libro", "Mi Gran Novela")
-        m_author = st.text_input("Nombre del Autor", "Nombre del Autor")
-        m_year = st.text_input("Año", "2025")
+        m_title = st.text_input("Título del Libro", value=st.session_state.book_data['title'])
+        m_author = st.text_input("Nombre del Autor", value=st.session_state.book_data['author'])
+        m_year = st.text_input("Año de Publicación", value=st.session_state.book_data['year'])
     with col2:
-        m_sub = st.text_input("Subtítulo (opcional)", "")
-        m_isbn = st.text_input("ISBN", "")
+        m_sub = st.text_input("Subtítulo (opcional)", value=st.session_state.book_data['subtitle'])
+        m_isbn = st.text_input("ISBN", value=st.session_state.book_data['isbn'])
         size_mode = st.selectbox("Formato de Salida", ["Pocket (5.25 x 8 in)", "Trade (5.5 x 8.5 in)"])
 
-    m_dedication = st.text_area("Dedicatoria", "Para aquellos que creen en la magia de las palabras.")
-    m_about = st.text_area("Acerca del Autor", "Escribe aquí una breve biografía.")
+    m_dedication = st.text_area("Dedicatoria", value=st.session_state.book_data['dedication'])
+    m_about = st.text_area("Acerca del Autor", value=st.session_state.book_data['about_author'])
 
 st.subheader("🖋️ Contenido del Manuscrito")
-st.markdown("Usa `# Título de Capítulo` para separar las secciones.")
 editor = st.text_area("Pega aquí tu manuscrito en Markdown", height=400, placeholder="# CAPÍTULO 1\nHabía una vez...")
 
 if st.button("🚀 Generar Documento para Impresión", use_container_width=True):
