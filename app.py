@@ -247,7 +247,7 @@ def run_book_conversion(md_text, meta, size_option):
 
 st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
 
-# Valores iniciales
+# Estructura de datos centralizada
 initial_vals = {
     'title': "Mi Gran Novela",
     'subtitle': "",
@@ -260,7 +260,7 @@ initial_vals = {
     'manuscript': ""
 }
 
-# Inicialización forzada de Session State
+# Inicialización segura
 for key, val in initial_vals.items():
     if key not in st.session_state:
         st.session_state[key] = val
@@ -269,10 +269,15 @@ st.title("📖 Maquetador Editorial Profesional")
 
 with st.sidebar:
     st.header("📂 Importación")
+    
+    # Carga de JSON con refresco forzado
     up_json = st.file_uploader("1. Ficha JSON", type=["json"])
     if up_json:
         try:
-            data = json.loads(up_json.getvalue().decode("utf-8-sig"))
+            raw_json = up_json.getvalue().decode("utf-8-sig")
+            data = json.loads(raw_json)
+            
+            # Mapeo exhaustivo de claves
             mapping = {
                 'titulo': 'title', 'title': 'title', 
                 'subtitulo': 'subtitle', 'subtitle': 'subtitle',
@@ -281,24 +286,33 @@ with st.sidebar:
                 'año': 'year', 'year': 'year', 
                 'isbn': 'isbn', 'copyright': 'copyright',
                 'biografia': 'about_author', 'bio': 'about_author', 
-                'about_author': 'about_author', 'authorbio': 'about_author'
+                'about_author': 'about_author', 'authorbio': 'about_author',
+                'author_bio': 'about_author'
             }
-            # Actualizamos el estado directamente
+            
+            # Actualización de memoria
             for k, v in data.items():
                 kl = k.lower().strip()
                 if kl in mapping:
                     st.session_state[mapping[kl]] = str(v) if v is not None else ""
-            st.success("¡Metadatos cargados!")
-            st.rerun()
+            
+            st.success("¡Metadatos cargados con éxito!")
+            st.rerun() # Sincronización inmediata de widgets
         except Exception as e:
             st.error(f"Error al cargar JSON: {e}")
 
+    # Carga de Manuscrito con refresco forzado
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
-        st.session_state.manuscript = up_md.read().decode("utf-8")
-        st.success("Texto cargado")
+        try:
+            content = up_md.getvalue().decode("utf-8")
+            st.session_state.manuscript = content
+            st.success("¡Texto del manuscrito cargado!")
+            st.rerun() # Sincronización inmediata
+        except Exception as e:
+            st.error(f"Error al leer manuscrito: {e}")
 
-# Widgets vinculados mediante 'key'
+# Los widgets ahora usan 'key' para vinculación bidireccional perfecta
 with st.expander("📝 Metadatos", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -314,13 +328,19 @@ with st.expander("📝 Metadatos", expanded=True):
     st.text_area("Copyright / Créditos Legales", key="copyright", height=80)
     st.text_area("Sobre el autor (Biografía)", key="about_author", height=120)
 
-st.subheader("🖋️ Manuscrito")
-st.text_area("Contenido del Manuscrito", key="manuscript", height=300)
+st.subheader("🖋️ Editor del Manuscrito")
+st.text_area("Contenido", key="manuscript", height=300)
 
 if st.button("🚀 Generar Libro", use_container_width=True):
     if st.session_state.manuscript and st.session_state.title:
         bundle = { k: st.session_state[k] for k in initial_vals.keys() }
         docx = run_book_conversion(st.session_state.manuscript, bundle, size_mode)
-        st.download_button(f"📥 Descargar {st.session_state.title}.docx", docx, f"{st.session_state.title.replace(' ', '_')}.docx")
+        st.success("¡Libro generado correctamente!")
+        st.download_button(
+            label=f"📥 Descargar {st.session_state.title}.docx",
+            data=docx,
+            file_name=f"{st.session_state.title.replace(' ', '_')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
     else:
-        st.error("Faltan datos obligatorios (Título o Manuscrito).")
+        st.error("Faltan datos obligatorios: Título o Manuscrito.")
