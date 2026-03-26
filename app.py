@@ -48,7 +48,7 @@ def add_page_numbers_to_section(section):
     p_odd = footer_odd.paragraphs[0] if footer_odd.paragraphs else footer_odd.add_paragraph()
     _insert_page_number_logic(p_odd)
 
-    footer_even = section.even_page_header
+    footer_even = section.even_page_footer
     p_even = footer_even.paragraphs[0] if footer_even.paragraphs else footer_even.add_paragraph()
     _insert_page_number_logic(p_even)
 
@@ -318,13 +318,15 @@ with st.sidebar:
     
     if up_json:
         try:
-            raw_data = up_json.read().decode("utf-8")
+            # Obtener bytes y decodificar con utf-8-sig (maneja el BOM de Windows)
+            raw_bytes = up_json.getvalue()
+            raw_data = raw_bytes.decode("utf-8-sig")
             data = json.loads(raw_data)
             
             if not isinstance(data, dict):
                 st.error("El JSON debe ser un objeto { ... }")
             else:
-                # Mapeo de claves incluyendo la nueva "authorBio"
+                # Mapeo de claves mejorado y exhaustivo
                 mapping = {
                     'titulo': 'title', 'title': 'title', 
                     'subtitulo': 'subtitle', 'subtitle': 'subtitle',
@@ -335,18 +337,20 @@ with st.sidebar:
                     'copyright': 'copyright',
                     'biografia': 'about_author', 'biografía': 'about_author', 
                     'bio': 'about_author', 'sobre_autor': 'about_author', 
-                    'about_author': 'about_author', 'authorbio': 'about_author'
+                    'about_author': 'about_author', 'authorbio': 'about_author',
+                    'author_bio': 'about_author'
                 }
                 
+                # Actualizar el diccionario central
                 for k, v in data.items():
-                    key_low = k.lower()
+                    key_low = k.lower().strip()
                     if key_low in mapping:
                         st.session_state.book_data[mapping[key_low]] = str(v) if v is not None else ""
                 
                 st.success("¡Datos cargados correctamente!")
-                st.rerun()
+                st.rerun() # Fuerza el refresco de los widgets con los nuevos valores
         except json.JSONDecodeError:
-            st.error("Error de sintaxis en el archivo JSON.")
+            st.error("Error de sintaxis en el archivo JSON. Revisa comas y comillas.")
         except Exception as e:
             st.error(f"Error inesperado: {e}")
 
