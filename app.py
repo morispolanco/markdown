@@ -224,7 +224,6 @@ def run_book_conversion(md_text, meta, size_option):
     run_c.font.size = Pt(9)
     
     # --- PÁGINA 3: ÍNDICE (Nueva Sección) ---
-    # Reservada y en blanco como se solicitó
     section_index = doc.add_section(WD_SECTION_START.ODD_PAGE)
     apply_layout(section_index, size_option)
     section_index.different_first_page_header_footer = True
@@ -232,20 +231,14 @@ def run_book_conversion(md_text, meta, size_option):
     p_idx = doc.add_paragraph()
     p_idx.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_idx.paragraph_format.space_before = Pt(72)
-    run_idx = p_idx.add_run("ÍNDICE") # Marcador de posición
+    run_idx = p_idx.add_run("ÍNDICE")
     run_idx.font.size = Pt(18)
     run_idx.bold = True
     
-    # --- PÁGINA 4: DEDICATORIA ---
-    doc.add_page_break()
-    p_ded = doc.add_paragraph()
-    p_ded.paragraph_format.space_before = Inches(2.0)
-    p_ded.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_d = p_ded.add_run(meta.get('dedication', ""))
-    run_d.italic = True
+    # La dedicatoria ha sido eliminada por solicitud del usuario.
+    # El cuerpo del texto iniciará inmediatamente después del índice.
 
     # --- CUERPO ---
-    doc.add_page_break()
     lines = md_text.split('\n')
     is_after_heading = False
     
@@ -292,7 +285,6 @@ defaults = {
     'subtitle': "",
     'isbn': "",
     'copyright': "",
-    'dedication': "Para aquellos que creen en la magia de las palabras.",
     'manuscript': ""
 }
 
@@ -318,8 +310,7 @@ with st.sidebar:
                 'editorial': 'publisher', 'publisher': 'publisher',
                 'año': 'year', 'year': 'year', 
                 'isbn': 'isbn', 
-                'copyright': 'copyright',
-                'dedicatoria': 'dedication', 'dedication': 'dedication'
+                'copyright': 'copyright'
             }
             for k, v in data.items():
                 if k.lower() in mapping: 
@@ -348,7 +339,6 @@ with st.expander("📝 Metadatos", expanded=True):
     
     m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
     m_copyright = st.text_area("Copyright / Créditos Legales", value=st.session_state.book_data['copyright'], height=100)
-    m_dedication = st.text_area("Dedicatoria", value=st.session_state.book_data['dedication'])
 
 st.subheader("🖋️ Manuscrito")
 editor_content = st.text_area("Contenido", value=st.session_state.book_data.get('manuscript', ""), height=350)
@@ -358,7 +348,7 @@ if st.button("🚀 Generar Libro", use_container_width=True):
         bundle = {
             'title': m_title, 'subtitle': m_sub, 'author': m_author, 
             'publisher': m_pub, 'year': m_year, 'isbn': m_isbn, 
-            'copyright': m_copyright, 'dedication': m_dedication
+            'copyright': m_copyright
         }
         docx_bytes = run_book_conversion(editor_content, bundle, size_mode)
         st.success("¡Libro generado!")
