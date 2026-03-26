@@ -131,15 +131,15 @@ def setup_styles(doc):
     h1.paragraph_format.space_after = Pt(36)
     h1.paragraph_format.keep_with_next = True
 
-    # --- ESTILO TÍTULO 2 (Heading 2) ---
+    # Estilo Título 2 (Heading 2)
     h2 = styles['Heading 2'] if 'Heading 2' in styles else styles.add_style('Heading 2', 1)
     h2.font.name = 'Aptos'
     h2.font.size = Pt(14)
     h2.font.bold = True
-    h2.font.color.rgb = RGBColor(0, 0, 0) # Color automático
+    h2.font.color.rgb = RGBColor(0, 0, 0)
     h2.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    h2.paragraph_format.space_before = Pt(10) # 10 puntos antes
-    h2.paragraph_format.space_after = Pt(6)   # 6 puntos después
+    h2.paragraph_format.space_before = Pt(10)
+    h2.paragraph_format.space_after = Pt(6)
     h2.paragraph_format.keep_with_next = True
 
     return doc
@@ -171,7 +171,7 @@ def run_book_conversion(md_text, meta, size_option):
     setup_styles(doc)
     doc.settings.odd_and_even_pages_header_footer = True
     
-    # Portada
+    # Portada (Página 1)
     section = doc.sections[0]
     apply_layout(section, size_option)
     
@@ -182,17 +182,44 @@ def run_book_conversion(md_text, meta, size_option):
     run_t.font.size = Pt(28)
     run_t.bold = True
 
+    if meta.get('subtitle'):
+        p_sub = doc.add_paragraph()
+        p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_s = p_sub.add_run(meta['subtitle'])
+        run_s.font.size = Pt(14)
+        run_s.italic = True
+
     p_author = doc.add_paragraph()
     p_author.paragraph_format.space_before = Inches(2.0)
     p_author.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run_a = p_author.add_run(meta['author'])
     run_a.font.size = Pt(16)
 
+    # NUEVO: Editorial en portada
+    if meta.get('publisher'):
+        p_pub = doc.add_paragraph()
+        p_pub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_pub.paragraph_format.space_before = Pt(6)
+        run_p = p_pub.add_run(meta['publisher'])
+        run_p.font.size = Pt(12)
+        run_p.italic = True
+
     # Copyright
     doc.add_page_break()
     p_copy = doc.add_paragraph()
     p_copy.paragraph_format.space_before = Inches(4.5)
-    copyright_text = f"{meta['title']}\nCopyright © {meta['year']} {meta['author']}\nAll rights reserved.\n\nISBN: {meta.get('isbn', '________________')}"
+    
+    if meta.get('copyright'):
+        copyright_text = meta['copyright']
+    else:
+        copyright_text = (
+            f"{meta['title']}\n"
+            f"Copyright © {meta['year']} {meta['author']}\n"
+            "All rights reserved.\n\n"
+            f"Editorial: {meta.get('publisher', 'N/A')}\n"
+            f"ISBN: {meta.get('isbn', '________________')}"
+        )
+    
     run_c = p_copy.add_run(copyright_text)
     run_c.font.size = Pt(9)
     
@@ -247,9 +274,11 @@ st.set_page_config(page_title="Maquetador Editorial Pro", layout="centered")
 defaults = {
     'title': "Mi Gran Novela",
     'author': "Nombre del Autor",
+    'publisher': "Editorial Desconocida",
     'year': "2025",
     'subtitle': "",
     'isbn': "",
+    'copyright': "",
     'dedication': "Para aquellos que creen en la magia de las palabras.",
     'manuscript': ""
 }
@@ -269,9 +298,18 @@ with st.sidebar:
     if up_json:
         try:
             data = json.load(up_json)
-            mapping = {'titulo': 'title', 'title': 'title', 'autor': 'author', 'author': 'author', 'año': 'year', 'year': 'year', 'isbn': 'isbn', 'dedicatoria': 'dedication'}
+            mapping = {
+                'titulo': 'title', 'title': 'title', 
+                'autor': 'author', 'author': 'author', 
+                'editorial': 'publisher', 'publisher': 'publisher',
+                'año': 'year', 'year': 'year', 
+                'isbn': 'isbn', 
+                'copyright': 'copyright',
+                'dedicatoria': 'dedication', 'dedication': 'dedication'
+            }
             for k, v in data.items():
-                if k.lower() in mapping: st.session_state.book_data[mapping[k.lower()]] = str(v)
+                if k.lower() in mapping: 
+                    st.session_state.book_data[mapping[k.lower()]] = str(v)
             st.success("JSON cargado")
         except: st.error("Error JSON")
 
@@ -283,15 +321,22 @@ with st.sidebar:
             st.success("Texto cargado")
         except: st.error("Error al leer texto")
 
-with st.expander("📝 Metadatos", expanded=False):
+with st.expander("📝 Metadatos", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
         m_title = st.text_input("Título", value=st.session_state.book_data['title'])
         m_author = st.text_input("Autor", value=st.session_state.book_data['author'])
+        m_pub = st.text_input("Editorial", value=st.session_state.book_data['publisher'])
     with col2:
         m_year = st.text_input("Año", value=st.session_state.book_data['year'])
         size_mode = st.selectbox("Formato", ["Pocket (5.25 x 8 in)", "Trade (5.5 x 8.5 in)"])
-    m_isbn = st.text_input("ISBN", value=st.session_state.book_data['isbn'])
+        m_isbn = st.text_input("ISBN", value=st.session_state.book_data['isbn'])
+    
+    m_sub = st.text_input("Subtítulo", value=st.session_state.book_data['subtitle'])
+    m_copyright = st.text_area("Copyright / Créditos Legales", 
+                               value=st.session_state.book_data['copyright'], 
+                               placeholder="Si se deja vacío, se generará automáticamente.",
+                               height=100)
     m_dedication = st.text_area("Dedicatoria", value=st.session_state.book_data['dedication'])
 
 st.subheader("🖋️ Manuscrito")
@@ -299,7 +344,16 @@ editor_content = st.text_area("Contenido", value=st.session_state.book_data.get(
 
 if st.button("🚀 Generar Libro", use_container_width=True):
     if editor_content and m_title:
-        bundle = {'title': m_title, 'author': m_author, 'year': m_year, 'isbn': m_isbn, 'dedication': m_dedication}
+        bundle = {
+            'title': m_title, 
+            'subtitle': m_sub,
+            'author': m_author, 
+            'publisher': m_pub,
+            'year': m_year, 
+            'isbn': m_isbn, 
+            'copyright': m_copyright,
+            'dedication': m_dedication
+        }
         docx_bytes = run_book_conversion(editor_content, bundle, size_mode)
         st.success("¡Libro generado!")
         st.download_button(f"📥 Descargar {m_title}.docx", docx_bytes, f"{m_title.replace(' ', '_')}.docx")
