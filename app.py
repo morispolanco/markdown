@@ -54,6 +54,7 @@ def add_page_numbers_to_section(section):
 
 def setup_headers(section, author, title):
     """Configura encabezados: Autor en pares, Título en impares. Times New Roman 9pt Versalita."""
+    # Encabezado páginas IMPARES -> TÍTULO DEL LIBRO
     header_odd = section.header
     p_odd = header_odd.paragraphs[0] if header_odd.paragraphs else header_odd.add_paragraph()
     p_odd.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -63,6 +64,7 @@ def setup_headers(section, author, title):
     run_odd.font.size = Pt(9)
     run_odd.font.small_caps = True
 
+    # Encabezado páginas PARES -> NOMBRE DEL AUTOR
     header_even = section.even_page_header
     p_even = header_even.paragraphs[0] if header_even.paragraphs else header_even.add_paragraph()
     p_even.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -185,6 +187,7 @@ def run_book_conversion(md_text, meta, size_option):
     if meta.get('subtitle'):
         p_sub = doc.add_paragraph()
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_sub.paragraph_format.space_before = Pt(6)
         run_s = p_sub.add_run(meta['subtitle'])
         run_s.font.size = Pt(14)
         run_s.italic = True
@@ -195,7 +198,7 @@ def run_book_conversion(md_text, meta, size_option):
     run_a = p_author.add_run(meta['author'])
     run_a.font.size = Pt(16)
 
-    # NUEVO: Editorial en portada
+    # Editorial en portada
     if meta.get('publisher'):
         p_pub = doc.add_paragraph()
         p_pub.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -298,8 +301,10 @@ with st.sidebar:
     if up_json:
         try:
             data = json.load(up_json)
+            # Mapeo actualizado para incluir subtítulo
             mapping = {
                 'titulo': 'title', 'title': 'title', 
+                'subtitulo': 'subtitle', 'subtitle': 'subtitle',
                 'autor': 'author', 'author': 'author', 
                 'editorial': 'publisher', 'publisher': 'publisher',
                 'año': 'year', 'year': 'year', 
@@ -310,8 +315,8 @@ with st.sidebar:
             for k, v in data.items():
                 if k.lower() in mapping: 
                     st.session_state.book_data[mapping[k.lower()]] = str(v)
-            st.success("JSON cargado")
-        except: st.error("Error JSON")
+            st.success("JSON cargado con éxito")
+        except: st.error("Error al procesar el archivo JSON.")
 
     up_md = st.file_uploader("2. Manuscrito (.md, .txt)", type=["md", "txt"])
     if up_md:
